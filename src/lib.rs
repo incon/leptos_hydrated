@@ -1,0 +1,188 @@
+//! # Leptos Hydrated
+//!
+//! A library for **flicker-free interactive state hydration** in Leptos 0.8.
+//!
+//! ## The Problem
+//!
+//! In SSR (Server-Side Rendering) applications, there is often a "gap" between the time the
+//! HTML is rendered and the time the client-side JavaScript (WASM) is initialized and hydrated.
+//! During this gap, if you rely on asynchronous resources to initialize your state, the UI might
+//! "flicker" from a default/loading state to the actual state once the WASM takes over.
+//!
+//! ## The Solution
+//!
+//! `leptos_hydrated` provides primitives to synchronize state from the server to the client
+//! synchronously during hydration. It allows you to:
+//! 1. Provide an initial state that is available on the very first frame (e.g., from cookies or URL params).
+//! 2. Simultaneously start an asynchronous fetch to load full data.
+//! 3. Seamlessly transition from the initial state to the fetched state without UI flickering.
+//!
+//! ## Examples
+//!
+//! ### Using `HydrateContext`
+//!
+//! ```rust
+//! use leptos::prelude::*;
+//! use leptos_hydrated::*;
+//! use serde::{Serialize, Deserialize};
+//!
+//! #[derive(Clone, Default, Serialize, Deserialize, Send, Sync)]
+//! struct AppState { theme: String }
+//!
+//! #[component]
+//! fn App() -> impl IntoView {
+//!     view! {
+//!         <HydrateContext
+//!             ssr_value=|| AppState { theme: "light".to_string() }
+//!             fetcher=|| async { Ok(AppState { theme: "dark".to_string() }) }
+//!         >
+//!             <MainContent />
+//!         </HydrateContext>
+//!     }
+//! }
+//! ```
+
+use leptos::prelude::*;
+use serde::{Serialize, de::DeserializeOwned};
+use std::future::Future;
+
+/// A wrapper for a hydrated global signal provided via context.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HydratedSignal<T: 'static>(pub RwSignal<T>);
+
+/// The core hook for creating a hydrated signal.
+///
+/// This creates a signal that is initialized synchronously from `ssr_value` on both
+/// server and client, and then updated with the result of `fetcher` once it resolves
+/// on the client.
+///
+/// This is the foundation for flicker-free hydration.
+///
+/// Returns a tuple of `(RwSignal<T>, Resource<T>)`.
+pub fn use_hydrate_signal<T, Fut>(
+    ssr_value: impl Fn() -> T + 'static,
+    fetcher: impl Fn() -> Fut + Send + Sync + 'static,
+) -> (RwSignal<T>, Resource<T>)
+where
+    T: Clone + Serialize + DeserializeOwned + Default + Send + Sync + 'static,
+    Fut: Future<Output = Result<T, ServerFnError>> + Send + 'static,
+{
+    // Create the resource for serialisation/hydration
+    let resource = Resource::new(
+        || (),
+        move |_| {
+            let f = fetcher();
+            async move { f.await.unwrap_or_default() }
+        },
+    );
+
+    // Evaluate ssr_value() to get the initial synchronous state.
+    // On the server, this builds the first frame. On the client, this builds
+    // the hydration frame (matching the server) without prematurely reading the resource.
+    let initial_val = ssr_value();
+
+    let signal = RwSignal::new(initial_val);
+
+    #[cfg(feature = "ssr")]
+    {
+        let _ = resource.get();
+    }
+
+    #[cfg(not(feature = "ssr"))]
+    {
+        Effect::new(move |_| {
+            if let Some(val) = resource.get() {
+                signal.set(val);
+            }
+        });
+    }
+
+    (signal, resource)
+}
+
+/// A version of Hydrated that provides a "Global State" to its children via a closure.
+///
+/// This works at any level of the tree and doesn't pollute the context.
+#[component]
+pub fn Hydrate<T, Fut, ChildView>(
+    ssr_value: impl Fn() -> T + 'static,
+    fetcher: impl Fn() -> Fut + Send + Sync + 'static,
+    children: impl Fn(RwSignal<T>) -> ChildView + 'static,
+) -> impl IntoView
+where
+    T: Clone + Serialize + DeserializeOwned + Default + Send + Sync + 'static,
+    Fut: Future<Output = Result<T, ServerFnError>> + Send + 'static,
+    ChildView: IntoView + 'static,
+{
+    let (signal, _) = use_hydrate_signal(ssr_value, fetcher);
+    children(signal)
+}
+
+/// A version of Hydrated that provides the signal via Context to all descendants.
+///
+/// Use `use_hydrated::<T>()` or `use_hydrated_resource::<T>()` in child components
+/// to access the state and resource.
+#[component]
+pub fn HydrateContext<T, Fut>(
+    ssr_value: impl Fn() -> T + 'static,
+    fetcher: impl Fn() -> Fut + Send + Sync + 'static,
+    children: Children,
+) -> impl IntoView
+where
+    T: Clone + Serialize + DeserializeOwned + Default + Send + Sync + 'static,
+    Fut: Future<Output = Result<T, ServerFnError>> + Send + 'static,
+{
+    let (signal, resource) = use_hydrate_signal(ssr_value, fetcher);
+    provide_context(HydratedSignal(signal));
+    provide_context(resource);
+    children()
+}
+
+/// Helper to access a signal provided by `HydrateContext`.
+pub fn use_hydrated<T>() -> RwSignal<T>
+where
+    T: Clone + Send + Sync + 'static,
+{
+    use_context::<HydratedSignal<T>>().map(|s| s.0).expect(
+        "HydratedSignal not found. Did you wrap this part of the tree in <HydrateContext />?",
+    )
+}
+
+/// Helper to access the resource provided by `HydrateContext`.
+pub fn use_hydrated_resource<T>() -> Resource<T>
+where
+    T: Clone + Send + Sync + 'static,
+{
+    use_context::<Resource<T>>().expect(
+        "Hydrated Resource not found. Did you wrap this part of the tree in <HydrateContext />?",
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use leptos::reactive::owner::Owner;
+
+    #[tokio::test]
+    async fn test_use_hydrate_signal_csr_init() {
+        // Initialise the global executor for Leptos tasks
+        let _ = any_spawner::Executor::init_tokio();
+
+        // We use Owner::new_root to create a reactive scope for the signals and resources to run in
+        let owner = Owner::new_root(None);
+        owner.with(|| {
+            let (signal, _resource) = use_hydrate_signal(
+                || 42,
+                || async {
+                    // Yield to the executor to ensure the resource is pending initially
+                    tokio::task::yield_now().await;
+                    Ok::<i32, ServerFnError>(100)
+                },
+            );
+
+            // In CSR testing without the resource having resolved yet,
+            // we expect the initial value to match the provided ssr_value().
+            assert_eq!(signal.get(), 42);
+        });
+    }
+}

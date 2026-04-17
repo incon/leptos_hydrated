@@ -1,0 +1,20 @@
+[package]
+name = "leptos_hydrated"
+version = "0.1.0"
+edition = "2024"
+authors = ["David Darrell"]
+license = "MIT"
+description = "A component to hydrate and manage interactive hydration state in Leptos 0.8"
+keywords = ["leptos", "ssr", "hydration", "wasm"]
+categories = ["web-programming"]
+
+[features]
+ssr = ["leptos/ssr"]
+
+[dependencies]
+leptos = { version = "0.8" }
+serde = { version = "1.0", features = ["derive"] }
+
+[dev-dependencies]
+tokio = { version = "1.51", features = ["rt", "macros"] }
+any_spawner = { version = "0.3.0", features = ["tokio"] }

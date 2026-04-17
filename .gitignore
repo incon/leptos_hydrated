@@ -1,0 +1,22 @@
+/target
+/dist
+/site
+.env
+*.rs.bk
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Leptos specific
+/examples/*/target
+/examples/*/site
+/examples/*/pkg
+/examples/*/public
+/examples/*/dist
