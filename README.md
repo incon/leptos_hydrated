@@ -103,7 +103,6 @@ A full demonstration is available in the `examples/hydrate_showcase` directory. 
 - Dark/Light mode synchronization via cookies.
 - Authentication state persistence.
 - URL Parameter synchronization with hydrated state.
-- Specialized context wrapper patterns.
 
 To run the example:
 ```bash
