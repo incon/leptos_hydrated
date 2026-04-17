@@ -1,4 +1,4 @@
-# Leptos Hydrate
+# Leptos Hydrated
 
 A lightweight library for **flicker-free interactive state hydration** in [Leptos 0.8](https://leptos.dev/).
 
@@ -18,7 +18,10 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-leptos_hydrate = { git = "https://github.com/incon/leptos_hydrate" }
+# Once published to crates.io
+leptos_hydrated = "0.1.0"
+# Or via git
+# leptos_hydrated = { git = "https://github.com/incon/leptos_hydrated" }
 serde = { version = "1.0", features = ["derive"] }
 ```
 
@@ -65,12 +68,42 @@ fn MainContent() -> impl IntoView {
 }
 ```
 
+## Best Practices: Specialized Contexts
+
+For larger applications, it is a best practice to wrap `HydrateContext` in specialized components. This keeps your `App` component clean and allows you to place contexts exactly where they are needed.
+
+```rust
+#[component]
+fn ProfileContext(children: Children) -> impl IntoView {
+    view! {
+        <HydrateContext 
+            ssr_value=read_profile_state 
+            fetcher=fetch_profile_state
+        >
+            {children()}
+        </HydrateContext>
+    }
+}
+
+// In your App
+view! {
+    <ProfileContext>
+        <Router>
+            <Routes>
+                <Route path=StaticSegment("") view=HomePage/>
+            </Routes>
+        </ProfileContext>
+    </Router>
+}
+```
+
 ## Example Project
 
 A full demonstration is available in the `examples/hydrate_showcase` directory. It features:
 - Dark/Light mode synchronization via cookies.
 - Authentication state persistence.
-- Skeleton loaders for asynchronous data fetching.
+- URL Parameter synchronization with hydrated state.
+- Specialized context wrapper patterns.
 
 To run the example:
 ```bash
