@@ -7,6 +7,8 @@ license = "MIT"
 description = "A component to hydrate and manage interactive hydration state in Leptos 0.8"
 keywords = ["leptos", "ssr", "hydration", "wasm"]
 categories = ["web-programming"]
+repository = "https://github.com/incon/leptos_hydrated"
+readme = "README.md"
 
 [features]
 ssr = ["leptos/ssr"]
