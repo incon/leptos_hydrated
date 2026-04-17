@@ -18,11 +18,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-# Once published to crates.io
-leptos_hydrated = "0.1.0"
-# Or via git
-# leptos_hydrated = { git = "https://github.com/incon/leptos_hydrated" }
-serde = { version = "1.0", features = ["derive"] }
+leptos_hydrated = "0.2.0"
 ```
 
 ## Quick Start
@@ -85,15 +81,14 @@ fn ProfileContext(children: Children) -> impl IntoView {
     }
 }
 
-// In your App
 view! {
     <ProfileContext>
         <Router>
             <Routes>
                 <Route path=StaticSegment("") view=HomePage/>
             </Routes>
-        </ProfileContext>
-    </Router>
+        </Router>
+    </ProfileContext>
 }
 ```
 
