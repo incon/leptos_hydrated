@@ -296,7 +296,8 @@ fn PromoBanner() -> impl IntoView {
         >
             <span class="promo-tag">"EXCLUSIVE OFFER"</span>
             <span class="promo-text">
-                "Welcome! You have successfully hydrated the " <strong>"ref=" {move || state.get().0.unwrap_or_default()}</strong> " parameter."
+                "Welcome! You have successfully hydrated the "
+                <strong>"ref=" {move || state.get().0.unwrap_or_default()}</strong> " parameter."
             </span>
         </div>
     }
@@ -360,14 +361,14 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
         <!DOCTYPE html>
         <html lang="en">
             <head>
-                <meta charset="utf-8"/>
-                <meta name="viewport" content="width=device-width, initial-scale=1"/>
+                <meta charset="utf-8" />
+                <meta name="viewport" content="width=device-width, initial-scale=1" />
                 <AutoReload options=options.clone() />
-                <HydrationScripts options/>
-                <MetaTags/>
+                <HydrationScripts options />
+                <MetaTags />
             </head>
             <body>
-                <App/>
+                <App />
             </body>
         </html>
     }
@@ -378,21 +379,21 @@ pub fn App() -> impl IntoView {
     provide_meta_context();
 
     view! {
-        <Stylesheet id="leptos" href="/pkg/hydrate_showcase.css"/>
-        <Title text="Hydrate Showcase"/>
+        <Stylesheet id="leptos" href="/pkg/hydrate_showcase.css" />
+        <Title text="Hydrate Showcase" />
 
         <ProfileContext>
             <Router>
                 <TabContext>
-                <ReferralContext>
-                    <SyncHydratedState />
-                    <ThemeWrapper>
-                        <PromoBanner />
-                        <Routes fallback=|| "Page not found.".into_view()>
-                            <Route path=StaticSegment("") view=HomePage/>
-                        </Routes>
-                    </ThemeWrapper>
-                </ReferralContext>
+                    <ReferralContext>
+                        <SyncHydratedState />
+                        <ThemeWrapper>
+                            <PromoBanner />
+                            <Routes fallback=|| "Page not found.".into_view()>
+                                <Route path=StaticSegment("") view=HomePage />
+                            </Routes>
+                        </ThemeWrapper>
+                    </ReferralContext>
                 </TabContext>
             </Router>
         </ProfileContext>
@@ -406,9 +407,7 @@ fn ThemeWrapper(children: Children) -> impl IntoView {
 
     view! {
         <div class=move || format!("app-wrapper theme-{}", state.get().theme)>
-            <main>
-                {children()}
-            </main>
+            <main>{children()}</main>
         </div>
     }
 }
@@ -482,39 +481,90 @@ fn HomePage() -> impl IntoView {
             <h1>"Hydrate Showcase"</h1>
             <div class="controls">
                 <button class="btn btn-secondary" on:click=toggle_theme>
-                    "Switch to " {move || if profile_state.get().theme == "dark" { "Light" } else { "Dark" }}
+                    "Switch to "
+                    {move || if profile_state.get().theme == "dark" { "Light" } else { "Dark" }}
                 </button>
                 <button class="btn btn-primary" on:click=toggle_login>
-                    {move || if profile_state.get().is_authenticated { "Log Out" } else { "Log In" }}
+                    {move || {
+                        if profile_state.get().is_authenticated { "Log Out" } else { "Log In" }
+                    }}
                 </button>
             </div>
         </header>
 
         <div class="tabs">
-            <A href="?tab=cookie" attr:class=move || format!("tab-btn {}", if tab_state.get().0 == "cookie" { "active" } else { "" })>
+            <A
+                href="?tab=cookie"
+                attr:class=move || {
+                    format!("tab-btn {}", if tab_state.get().0 == "cookie" { "active" } else { "" })
+                }
+            >
                 "Cookie State"
             </A>
-            <A href="?tab=params" attr:class=move || format!("tab-btn {}", if tab_state.get().0 == "params" { "active" } else { "" })>
+            <A
+                href="?tab=params"
+                attr:class=move || {
+                    format!("tab-btn {}", if tab_state.get().0 == "params" { "active" } else { "" })
+                }
+            >
                 "Parameter State"
             </A>
-            <A href="?tab=reactivity" attr:class=move || format!("tab-btn {}", if tab_state.get().0 == "reactivity" { "active" } else { "" })>
+            <A
+                href="?tab=reactivity"
+                attr:class=move || {
+                    format!(
+                        "tab-btn {}",
+                        if tab_state.get().0 == "reactivity" { "active" } else { "" },
+                    )
+                }
+            >
                 "Reactivity"
             </A>
         </div>
 
         <div class="dashboard-grid">
-            <div class="params-content" style=move || if tab_state.get().0 == "params" { "display: contents" } else { "display: none" }>
+            <div
+                class="params-content"
+                style=move || {
+                    if tab_state.get().0 == "params" {
+                        "display: contents"
+                    } else {
+                        "display: none"
+                    }
+                }
+            >
                 <div class="card info-card">
                     <h2>"URL Parameter Hydration"</h2>
-                    <p>"This page demonstrates state driven entirely by the URL. No JavaScript is required for the initial render."</p>
-                    <p>"When you click the button below, then hard refresh (Cmd/Ctrl+R), the page will reload with a new parameter. Because of " <strong>"leptos_hydrate"</strong> ", the server knows exactly what to render immediately."</p>
+                    <p>
+                        "This page demonstrates state driven entirely by the URL. No JavaScript is required for the initial render."
+                    </p>
+                    <p>
+                        "When you click the button below, then hard refresh (Cmd/Ctrl+R), the page will reload with a new parameter. Because of "
+                        <strong>"leptos_hydrate"</strong>
+                        ", the server knows exactly what to render immediately."
+                    </p>
                     <button class="btn btn-primary" on:click=toggle_ref>
-                        {move || if referral_state.get().0.is_some() { "Remove Ref Parameter" } else { "Add Ref Parameter" }}
+                        {move || {
+                            if referral_state.get().0.is_some() {
+                                "Remove Ref Parameter"
+                            } else {
+                                "Add Ref Parameter"
+                            }
+                        }}
                     </button>
                 </div>
             </div>
 
-            <div class="reactivity-content" style=move || if tab_state.get().0 == "reactivity" { "display: contents" } else { "display: none" }>
+            <div
+                class="reactivity-content"
+                style=move || {
+                    if tab_state.get().0 == "reactivity" {
+                        "display: contents"
+                    } else {
+                        "display: none"
+                    }
+                }
+            >
                 <div class="card reactivity-card">
                     <h2>"Reactive Form Updates"</h2>
                     {move || {
@@ -522,29 +572,56 @@ fn HomePage() -> impl IntoView {
                         if s.is_authenticated {
                             view! {
                                 <>
-                                    <p>"Update your profile data using this form. The default values are pre-populated from the " <strong>"HydrateContext"</strong> " state."</p>
-                                    <UpdateProfileForm action=update_profile_action profile=s.profile />
-                                    <p class="note">"After submitting, the state will be updated reactively in the UI and synchronized with your session cookie."</p>
+                                    <p>
+                                        "Update your profile data using this form. The default values are pre-populated from the "
+                                        <strong>"HydrateContext"</strong> " state."
+                                    </p>
+                                    <UpdateProfileForm
+                                        action=update_profile_action
+                                        profile=s.profile
+                                    />
+                                    <p class="note">
+                                        "After submitting, the state will be updated reactively in the UI and synchronized with your session cookie."
+                                    </p>
                                 </>
-                            }.into_any()
+                            }
+                                .into_any()
                         } else {
                             view! {
                                 <div class="guest-state">
                                     <p>"You must be logged in to edit your profile."</p>
-                                    <button class="btn btn-primary" on:click=toggle_login>"Log In Now"</button>
+                                    <button class="btn btn-primary" on:click=toggle_login>
+                                        "Log In Now"
+                                    </button>
                                 </div>
-                            }.into_any()
+                            }
+                                .into_any()
                         }
                     }}
                 </div>
             </div>
 
-            <div class="cookie-content" style=move || if tab_state.get().0 == "cookie" || (tab_state.get().0 != "params" && tab_state.get().0 != "reactivity") { "display: contents" } else { "display: none" }>
+            <div
+                class="cookie-content"
+                style=move || {
+                    if tab_state.get().0 == "cookie"
+                        || (tab_state.get().0 != "params" && tab_state.get().0 != "reactivity")
+                    {
+                        "display: contents"
+                    } else {
+                        "display: none"
+                    }
+                }
+            >
                 <ProfileCard />
                 <div class="card info-card">
                     <h2>"Synchronous Cookie Hydration"</h2>
-                    <p>"The user session data is stored in a cookie. The server reads and renders the authenticated UI on the first frame."</p>
-                    <p>"Try logging in and then hard-refreshing (Cmd/Ctrl+R). You will notice zero flickering or blanking."</p>
+                    <p>
+                        "The user session data is stored in a cookie. The server reads and renders the authenticated UI on the first frame."
+                    </p>
+                    <p>
+                        "Try logging in and then hard-refreshing (Cmd/Ctrl+R). You will notice zero flickering or blanking."
+                    </p>
                 </div>
             </div>
         </div>
@@ -557,9 +634,7 @@ fn UpdateProfileForm(
     profile: Option<UserProfile>,
 ) -> impl IntoView {
     view! {
-        <ActionForm
-            action=action
-        >
+        <ActionForm action=action>
             <div class="form-group">
                 <label for="name">"Name"</label>
                 <input
@@ -580,7 +655,9 @@ fn UpdateProfileForm(
                     placeholder="Enter your role"
                 />
             </div>
-            <button type="submit" class="btn btn-primary">"Update Profile"</button>
+            <button type="submit" class="btn btn-primary">
+                "Update Profile"
+            </button>
         </ActionForm>
     }
 }
@@ -598,18 +675,28 @@ fn ProfileCard() -> impl IntoView {
                     if let Some(profile) = s.profile.clone() {
                         view! {
                             <div class="profile-data">
-                                <p class="greeting">{move || format!("Welcome back, {}!", profile.name)}</p>
-                                <p><span>"Role: "</span><span class="badge">{profile.role}</span></p>
-                                <p><span>"Session Edits: "</span>{profile.edits}</p>
+                                <p class="greeting">
+                                    {move || format!("Welcome back, {}!", profile.name)}
+                                </p>
+                                <p>
+                                    <span>"Role: "</span>
+                                    <span class="badge">{profile.role}</span>
+                                </p>
+                                <p>
+                                    <span>"Session Edits: "</span>
+                                    {profile.edits}
+                                </p>
                             </div>
-                        }.into_any()
+                        }
+                            .into_any()
                     } else {
                         view! {
                             <div class="guest-state">
                                 <p>"You are currently browsing as a guest."</p>
                                 <p>"Log in to view your secure profile data."</p>
                             </div>
-                        }.into_any()
+                        }
+                            .into_any()
                     }
                 }}
             </div>
