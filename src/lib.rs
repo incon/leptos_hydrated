@@ -39,8 +39,8 @@
 //!         ThemeState { theme: "dark".into() }
 //!     }
 //!     async fn fetch() -> Result<Self, ServerFnError> {
-//!         // Re-read from the same source via a server function.
-//!         // Returns the same value as initial() — no state change on hydration.
+//!         // Re-read from the same client-side state (cookie, URL param, etc.).
+//!         // Matches initial() — no state change on hydration.
 //!         Ok(ThemeState { theme: "dark".into() })
 //!     }
 //! }

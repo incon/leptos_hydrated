@@ -15,7 +15,7 @@ impl Hydratable for ThemeState {
         ThemeState { theme: "dark".into() }
     }
     async fn fetch() -> Result<Self, ServerFnError> {
-        // Re-reads from the same source via a server function.
+        // Re-reads from the same client-side state (cookie, URL param, etc.).
         // Matches initial() — state does not change on hydration.
         Ok(ThemeState { theme: "dark".into() })
     }
