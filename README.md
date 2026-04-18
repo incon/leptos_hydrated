@@ -8,8 +8,8 @@ This library provides primitives to synchronize state from the server to the cli
 
 - **Flicker-Free:** Initializes signals with server-provided state immediately during hydration.
 - **Isomorphic:** Works naturally in both SSR and CSR contexts.
-- **Global State:** Use the `Hydrate` component for application-wide state via a render prop.
-- **Scoped State:** Use the `HydrateContext` component for localized feature state via context.
+- **Global State:** Use the `Hydrate` component for global application state via a render prop.
+- **Scoped State:** Use the `HydrateContext` component for scoped feature state via context.
 - **Resource Support:** Automatically manages a background `Resource` to keep data in sync.
 
 ## Installation
@@ -18,7 +18,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-leptos_hydrated = "0.2.1"
+leptos_hydrated = "0.2.3"
 ```
 
 ## Quick Start
@@ -37,7 +37,9 @@ pub struct AppState {
 
 #### `Hydrate` (Global State)
 
-Provides global state to its children via a render prop. This example shows how `ssr_value` and `fetcher` match on the first render by reading from a common synchronous source (like cookies), ensuring the client initializes with exactly what the server rendered.
+Provides global state via a render prop. It doesn't matter where you place it in the tree; the state is inherently global.
+
+This example shows how `ssr_value` and `fetcher` match on the first render by reading from a common synchronous source (like cookies), ensuring the client initializes with exactly what the server rendered.
 
 ```rust
 #[component]
