@@ -1,6 +1,6 @@
 [package]
 name = "leptos_hydrated"
-version = "0.2.3"
+version = "0.3.0"
 edition = "2024"
 authors = ["David Darrell"]
 license = "MIT"
@@ -18,5 +18,5 @@ leptos = { version = "0.8" }
 serde = { version = "1.0", features = ["derive"] }
 
 [dev-dependencies]
-tokio = { version = "1.51", features = ["rt", "macros"] }
+tokio = { version = "1.51", features = ["rt", "macros", "time"] }
 any_spawner = { version = "0.3.0", features = ["tokio"] }

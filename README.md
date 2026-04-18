@@ -8,7 +8,7 @@ This library provides primitives to synchronize state from the server to the cli
 
 - **Flicker-Free:** Initializes signals with server-provided state immediately during hydration.
 - **Isomorphic:** Works naturally in both SSR and CSR contexts.
-- **Global State:** Use the `Hydrate` component for global application state via a render prop.
+- **Global State:** Use the `Hydrate` component for global application state.
 - **Scoped State:** Use the `HydrateContext` component for scoped feature state via context.
 - **Resource Support:** Automatically manages a background `Resource` to keep data in sync.
 
@@ -18,7 +18,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-leptos_hydrated = "0.2.3"
+leptos_hydrated = "0.3.0"
 ```
 
 ## Quick Start
@@ -27,9 +27,8 @@ leptos_hydrated = "0.2.3"
 
 ```rust
 #[derive(Clone, Default, Serialize, Deserialize)]
-pub struct AppState {
+pub struct ThemeState {
     pub theme: String,
-    pub user_name: Option<String>,
 }
 ```
 
@@ -37,23 +36,25 @@ pub struct AppState {
 
 #### `Hydrate` (Global State)
 
-Provides global state via a render prop. It doesn't matter where you place it in the tree; the state is inherently global.
-
-This example shows how `ssr_value` and `fetcher` match on the first render by reading from a common synchronous source (like cookies), ensuring the client initializes with exactly what the server rendered.
+Provides global state via context. It doesn't matter where you place it in the tree; the state is inherently global.
 
 ```rust
 #[component]
 pub fn App() -> impl IntoView {
     view! {
         <Hydrate
-            // Read synchronously from cookies on both server and client
-            ssr_value=move || read_user_cookie()
-            // Fetch the full profile asynchronously (initially matches cookie)
-            fetcher=|| async { Ok(read_user_cookie()) }
-            children=move |user| {
-                view! { <MainContent user /> }
-            }
+            ssr_value=move || ThemeState { theme: read_theme_cookie() }
+            fetcher=|| async { Ok(ThemeState { theme: read_theme_cookie() }) }
         />
+        <MainContent />
+    }
+}
+
+#[component]
+fn MainContent() -> impl IntoView {
+    let state = use_hydrated::<ThemeState>();
+    view! {
+        <p>"Theme: " {move || state.get().theme}</p>
     }
 }
 ```
@@ -67,7 +68,6 @@ Provides scoped feature state to all descendants via the standard Leptos context
 fn ProfileSection() -> impl IntoView {
     view! {
         <HydrateContext
-            // Both read from the same source to ensure matching first frame
             ssr_value=|| read_theme_cookie()
             fetcher=|| async { Ok(read_theme_cookie()) }
         >

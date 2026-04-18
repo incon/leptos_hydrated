@@ -19,24 +19,48 @@
 //!
 //! ## Examples
 //!
-//! ### Using `HydrateContext`
+//! ### Using `Hydrate` (Global State)
 //!
 //! ```rust
 //! use leptos::prelude::*;
 //! use leptos_hydrated::*;
 //! use serde::{Serialize, Deserialize};
 //!
-//! #[derive(Clone, Default, Serialize, Deserialize, Send, Sync)]
-//! struct AppState { theme: String }
+//! #[derive(Clone, Default, Serialize, Deserialize)]
+//! struct ThemeState { theme: String }
 //!
 //! #[component]
 //! fn App() -> impl IntoView {
 //!     view! {
+//!         <Hydrate
+//!             ssr_value=|| ThemeState { theme: "light".to_string() }
+//!             fetcher=|| async { Ok(ThemeState { theme: "dark".to_string() }) }
+//!         />
+//!         <MainContent />
+//!     }
+//! }
+//!
+//! #[component]
+//! fn MainContent() -> impl IntoView {
+//!     let state = use_hydrated::<ThemeState>();
+//!     view! { <p>{move || state.get().theme}</p> }
+//! }
+//! ```
+//!
+//! ### Using `HydrateContext` (Scoped State)
+//!
+//! ```rust
+//! use leptos::prelude::*;
+//! use leptos_hydrated::*;
+//!
+//! #[component]
+//! fn FeatureSection() -> impl IntoView {
+//!     view! {
 //!         <HydrateContext
-//!             ssr_value=|| AppState { theme: "light".to_string() }
-//!             fetcher=|| async { Ok(AppState { theme: "dark".to_string() }) }
+//!             ssr_value=|| "Guest".to_string()
+//!             fetcher=|| async { Ok("Leptos User".to_string()) }
 //!         >
-//!             <MainContent />
+//!             <div />
 //!         </HydrateContext>
 //!     }
 //! }
@@ -90,32 +114,32 @@ where
 
     #[cfg(not(feature = "ssr"))]
     {
-        Effect::new(move |_| {
-            if let Some(val) = resource.get() {
-                signal.set(val);
-            }
+        // Use spawn_local to await the resource and update the signal.
+        // This ensures the update happens as soon as data is available,
+        // and is more reliably testable than a reactive Effect.
+        leptos::task::spawn_local(async move {
+            let val = resource.await;
+            signal.set(val);
         });
     }
 
     (signal, resource)
 }
 
-/// A version of Hydrated that provides a "Global State" to its children via a closure.
+/// A version of Hydrated that provides Global State to its descendants via context.
 ///
-/// This works at any level of the tree and doesn't pollute the context.
+/// Use `use_hydrated::<T>()` in child components to access the state.
 #[component]
-pub fn Hydrate<T, Fut, ChildView>(
+pub fn Hydrate<T, Fut>(
     ssr_value: impl Fn() -> T + 'static,
     fetcher: impl Fn() -> Fut + Send + Sync + 'static,
-    children: impl Fn(RwSignal<T>) -> ChildView + 'static,
 ) -> impl IntoView
 where
     T: Clone + Serialize + DeserializeOwned + Default + Send + Sync + 'static,
     Fut: Future<Output = Result<T, ServerFnError>> + Send + 'static,
-    ChildView: IntoView + 'static,
 {
     let (signal, _) = use_hydrate_signal(ssr_value, fetcher);
-    children(signal)
+    provide_context(HydratedSignal(signal));
 }
 
 /// A version of Hydrated that provides the signal via Context to all descendants.
@@ -138,13 +162,13 @@ where
     children()
 }
 
-/// Helper to access a signal provided by `HydrateContext`.
+/// Helper to access a signal provided by `HydrateContext` or `Hydrate`.
 pub fn use_hydrated<T>() -> RwSignal<T>
 where
     T: Clone + Send + Sync + 'static,
 {
     use_context::<HydratedSignal<T>>().map(|s| s.0).expect(
-        "HydratedSignal not found. Did you wrap this part of the tree in <HydrateContext />?",
+        "HydratedSignal not found. Did you wrap this part of the tree in <HydrateContext /> or <Hydrate />?",
     )
 }
 
@@ -159,30 +183,4 @@ where
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use leptos::reactive::owner::Owner;
-
-    #[tokio::test]
-    async fn test_use_hydrate_signal_csr_init() {
-        // Initialise the global executor for Leptos tasks
-        let _ = any_spawner::Executor::init_tokio();
-
-        // We use Owner::new_root to create a reactive scope for the signals and resources to run in
-        let owner = Owner::new_root(None);
-        owner.with(|| {
-            let (signal, _resource) = use_hydrate_signal(
-                || 42,
-                || async {
-                    // Yield to the executor to ensure the resource is pending initially
-                    tokio::task::yield_now().await;
-                    Ok::<i32, ServerFnError>(100)
-                },
-            );
-
-            // In CSR testing without the resource having resolved yet,
-            // we expect the initial value to match the provided ssr_value().
-            assert_eq!(signal.get(), 42);
-        });
-    }
-}
+mod tests;
