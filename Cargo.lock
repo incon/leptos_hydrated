@@ -842,7 +842,7 @@ dependencies = [
 
 [[package]]
 name = "leptos_hydrated"
-version = "0.5.4"
+version = "0.5.5"
 dependencies = [
  "any_spawner",
  "leptos",
