@@ -32,9 +32,11 @@
 //! #[component]
 //! fn App() -> impl IntoView {
 //!     view! {
+//!         // Provide global state. The ssr_value and fetcher should match
+//!         // on the first render to ensure zero visual flickering.
 //!         <Hydrate
-//!             ssr_value=|| ThemeState { theme: "light".to_string() }
-//!             fetcher=|| async { Ok(ThemeState { theme: "dark".to_string() }) }
+//!             ssr_value=|| ThemeState { theme: "dark".into() }
+//!             fetcher=|| async { Ok(ThemeState { theme: "dark".into() }) }
 //!         />
 //!         <MainContent />
 //!     }
@@ -43,7 +45,7 @@
 //! #[component]
 //! fn MainContent() -> impl IntoView {
 //!     let state = use_hydrated::<ThemeState>();
-//!     view! { <p>{move || state.get().theme}</p> }
+//!     view! { <p>"Current theme: " {move || state.get().theme}</p> }
 //! }
 //! ```
 //!
@@ -52,17 +54,27 @@
 //! ```rust
 //! use leptos::prelude::*;
 //! use leptos_hydrated::*;
+//! use serde::{Serialize, Deserialize};
+//!
+//! #[derive(Clone, Default, Serialize, Deserialize)]
+//! struct UserState { name: String }
 //!
 //! #[component]
 //! fn FeatureSection() -> impl IntoView {
 //!     view! {
 //!         <HydrateContext
-//!             ssr_value=|| "Guest".to_string()
-//!             fetcher=|| async { Ok("Leptos User".to_string()) }
+//!             ssr_value=|| UserState { name: "Guest".into() }
+//!             fetcher=|| async { Ok(UserState { name: "Guest".into() }) }
 //!         >
-//!             <div />
+//!             <SubComponent />
 //!         </HydrateContext>
 //!     }
+//! }
+//!
+//! #[component]
+//! fn SubComponent() -> impl IntoView {
+//!     let user = use_hydrated::<UserState>();
+//!     view! { <p>"Welcome, " {move || user.get().name}</p> }
 //! }
 //! ```
 
