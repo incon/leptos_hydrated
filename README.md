@@ -38,8 +38,9 @@ pub struct ThemeState {
 
 impl Hydratable for ThemeState {
     fn initial() -> Self {
-        // Read synchronously from the browser (e.g. a cookie or URL param).
-        // This runs on both server and client — this is what the first frame sees.
+        // Read from request details (cookies, URL params).
+        // On SSR: read from HTTP request headers/URI.
+        // On client: read from browser APIs (document.cookie, window.location).
         ThemeState { theme: "dark".into() }
     }
 

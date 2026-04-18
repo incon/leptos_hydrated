@@ -9,9 +9,9 @@ pub struct ThemeState {
 
 impl Hydratable for ThemeState {
     fn initial() -> Self {
-        // In real usage this reads from a cookie or URL param synchronously.
-        // Both initial() and fetch() read from the same source, so the value
-        // is identical on first frame and after hydration — zero flicker.
+        // Read from request details (cookies, URL params).
+        // On SSR: read from HTTP request headers/URI.
+        // On client: read from browser APIs (document.cookie, window.location).
         ThemeState { theme: "dark".into() }
     }
     async fn fetch() -> Result<Self, ServerFnError> {
