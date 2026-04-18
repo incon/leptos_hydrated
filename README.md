@@ -18,7 +18,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-leptos_hydrated = "0.3"
+leptos_hydrated = "0.4"
 ```
 
 ## Quick Start
