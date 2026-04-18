@@ -14,7 +14,7 @@
 //! `leptos_hydrated` provides primitives to synchronize state from the server to the client
 //! synchronously during hydration. It allows you to:
 //! 1. Provide an initial state that is available on the very first frame (e.g., from cookies or URL params).
-//! 2. Simultaneously start an asynchronous fetch to load full data.
+//! 2. Simultaneously start a client-side fetch to load full data.
 //! 3. Seamlessly transition from the initial state to the fetched state without UI flickering.
 //!
 //! ## Examples
@@ -94,19 +94,20 @@ pub struct HydratedSignal<T: 'static>(pub RwSignal<T>);
 ///
 /// This is the foundation for flicker-free hydration.
 ///
-/// Returns a tuple of `(RwSignal<T>, Resource<T>)`.
+/// Returns a tuple of `(RwSignal<T>, LocalResource<T>)`.
 pub fn use_hydrate_signal<T, Fut>(
     ssr_value: impl Fn() -> T + 'static,
     fetcher: impl Fn() -> Fut + Send + Sync + 'static,
-) -> (RwSignal<T>, Resource<T>)
+) -> (RwSignal<T>, LocalResource<T>)
 where
     T: Clone + Serialize + DeserializeOwned + Default + Send + Sync + 'static,
     Fut: Future<Output = Result<T, ServerFnError>> + Send + 'static,
 {
-    // Create the resource for serialisation/hydration
-    let resource = Resource::new(
-        || (),
-        move |_| {
+    // Create the resource for hydration. We use LocalResource to avoid
+    // hydration mismatch warnings and redundant server-side execution,
+    // as the initial state is already provided by ssr_value().
+    let resource = LocalResource::new(
+        move || {
             let f = fetcher();
             async move { f.await.unwrap_or_default() }
         },
@@ -119,10 +120,6 @@ where
 
     let signal = RwSignal::new(initial_val);
 
-    #[cfg(feature = "ssr")]
-    {
-        let _ = resource.get();
-    }
 
     #[cfg(not(feature = "ssr"))]
     {
@@ -185,11 +182,11 @@ where
 }
 
 /// Helper to access the resource provided by `HydrateContext`.
-pub fn use_hydrated_resource<T>() -> Resource<T>
+pub fn use_hydrated_resource<T>() -> LocalResource<T>
 where
     T: Clone + Send + Sync + 'static,
 {
-    use_context::<Resource<T>>().expect(
+    use_context::<LocalResource<T>>().expect(
         "Hydrated Resource not found. Did you wrap this part of the tree in <HydrateContext />?",
     )
 }

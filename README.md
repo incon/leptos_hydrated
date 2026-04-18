@@ -10,7 +10,7 @@ This library provides primitives to synchronize state from the server to the cli
 - **Isomorphic:** Works naturally in both SSR and CSR contexts.
 - **Global State:** Use the `Hydrate` component for global application state.
 - **Scoped State:** Use the `HydrateContext` component for scoped feature state via context.
-- **Resource Support:** Automatically manages a background `Resource` to keep data in sync.
+- **Warning-Free:** Uses `LocalResource` to avoid hydration mismatch warnings and optimize performance.
 
 ## Installation
 

@@ -26,6 +26,7 @@ async fn test_use_hydrate_signal_csr_init() {
     }).await;
 }
 
+#[cfg(not(feature = "ssr"))]
 #[tokio::test]
 async fn test_use_hydrate_signal_resolution() {
     let _ = any_spawner::Executor::init_tokio();
@@ -55,6 +56,7 @@ async fn test_use_hydrate_signal_resolution() {
     }).await;
 }
 
+#[cfg(not(feature = "ssr"))]
 #[tokio::test]
 async fn test_use_hydrate_signal_error_fallback() {
     let _ = any_spawner::Executor::init_tokio();
@@ -150,6 +152,42 @@ async fn test_ssr_path() {
             || async { Ok(100) },
         );
         assert_eq!(signal.get(), 42);
-        assert!(resource.get().is_some());
+        // LocalResource should not resolve on the server
+        assert!(resource.get().is_none());
+    });
+}
+
+#[tokio::test]
+async fn test_use_hydrated_resource_success() {
+    let _ = any_spawner::Executor::init_tokio();
+    let local = tokio::task::LocalSet::new();
+    local.run_until(async {
+        let owner = Owner::new_root(None);
+        owner.with(|| {
+            let _ = view! {
+                <HydrateContext
+                    ssr_value=|| 42
+                    fetcher=|| async { Ok(100) }
+                >
+                    {move || {
+                        let resource = use_hydrated_resource::<i32>();
+                        let _ = resource.get();
+                        "".into_view()
+                    }}
+                </HydrateContext>
+            };
+        });
+    }).await;
+}
+
+#[test]
+fn test_hydrated_signal_traits() {
+    let owner = Owner::new_root(None);
+    owner.with(|| {
+        let signal = RwSignal::new(42);
+        let h1 = HydratedSignal(signal);
+        let h2 = h1; // Clone/Copy
+        assert_eq!(h1, h2); // PartialEq/Eq
+        assert!(format!("{:?}", h1).contains("HydratedSignal")); // Debug
     });
 }

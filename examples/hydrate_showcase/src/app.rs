@@ -620,7 +620,7 @@ fn HomePage() -> impl IntoView {
                         "The user session data is stored in a cookie. The server reads and renders the authenticated UI on the first frame."
                     </p>
                     <p>
-                        "Try logging in and then hard-refreshing (Cmd/Ctrl+R). You will notice zero flickering or blanking."
+                        "Try logging in and then hard-refreshing (Cmd/Ctrl+R). You will notice zero flickering."
                     </p>
                 </div>
             </div>
