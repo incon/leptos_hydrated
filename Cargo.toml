@@ -1,6 +1,6 @@
 [package]
 name = "leptos_hydrated"
-version = "0.5.2"
+version = "0.5.3"
 
 edition = "2024"
 authors = ["David Darrell"]
@@ -10,6 +10,7 @@ keywords = ["leptos", "ssr", "hydration", "wasm"]
 categories = ["web-programming"]
 repository = "https://github.com/incon/leptos_hydrated"
 readme = "README.md"
+documentation = "https://docs.rs/leptos_hydrated"
 
 [features]
 ssr = ["leptos/ssr"]

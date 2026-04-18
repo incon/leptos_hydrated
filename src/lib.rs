@@ -110,7 +110,7 @@ pub fn use_hydrate_signal<T, Fut>(
     fetcher: impl Fn() -> Fut + Send + Sync + 'static,
 ) -> (RwSignal<T>, LocalResource<T>)
 where
-    T: Clone + Serialize + DeserializeOwned + Default + Send + Sync + 'static + std::fmt::Debug + PartialEq,
+    T: Clone + Serialize + DeserializeOwned + Default + Send + Sync + PartialEq + 'static,
     Fut: Future<Output = Result<T, ServerFnError>> + Send + 'static,
 {
     let initial_val = ssr_value();
@@ -143,7 +143,7 @@ pub fn HydrateState<T>(
     #[prop(optional)] marker: std::marker::PhantomData<T>,
 ) -> impl IntoView
 where
-    T: Hydratable + std::fmt::Debug + PartialEq,
+    T: Hydratable + PartialEq,
 {
     let _ = marker;
     view! {
@@ -158,7 +158,7 @@ pub fn HydrateContext<T>(
     #[prop(optional)] marker: std::marker::PhantomData<T>,
 ) -> impl IntoView
 where
-    T: Hydratable + std::fmt::Debug + PartialEq,
+    T: Hydratable + PartialEq,
 {
     let _ = marker;
     view! {
@@ -170,18 +170,21 @@ where
 
 /// A version of Hydrate that provides Global State to its descendants via context.
 ///
-/// Use `use_hydrated::<T>()` in child components to access the state.
+/// Provides both `HydratedSignal<T>` and `LocalResource<T>` via context.
+/// Use `use_hydrated::<T>()` to access the signal, or `use_hydrated_resource::<T>()`
+/// to access the underlying resource.
 #[component]
 pub fn HydrateStateWith<T, Fut>(
     ssr_value: impl Fn() -> T + 'static,
     fetcher: impl Fn() -> Fut + Send + Sync + 'static,
 ) -> impl IntoView
 where
-    T: Clone + Serialize + DeserializeOwned + Default + Send + Sync + 'static + std::fmt::Debug + PartialEq,
+    T: Clone + Serialize + DeserializeOwned + Default + Send + Sync + PartialEq + 'static,
     Fut: Future<Output = Result<T, ServerFnError>> + Send + 'static,
 {
-    let (signal, _) = use_hydrate_signal(ssr_value, fetcher);
+    let (signal, resource) = use_hydrate_signal(ssr_value, fetcher);
     provide_context(HydratedSignal(signal));
+    provide_context(resource);
 }
 
 /// A version of Hydrated that provides the signal via Context to all descendants.
@@ -195,7 +198,7 @@ pub fn HydrateContextWith<T, Fut>(
     children: Children,
 ) -> impl IntoView
 where
-    T: Clone + Serialize + DeserializeOwned + Default + Send + Sync + 'static + std::fmt::Debug + PartialEq,
+    T: Clone + Serialize + DeserializeOwned + Default + Send + Sync + PartialEq + 'static,
     Fut: Future<Output = Result<T, ServerFnError>> + Send + 'static,
 {
     let (signal, resource) = use_hydrate_signal(ssr_value, fetcher);
@@ -204,7 +207,11 @@ where
     children()
 }
 
-/// Helper to access a signal provided by `HydrateContext` or `HydrateStateWith`.
+/// Helper to access a signal provided by any `Hydrate*` component.
+///
+/// # Panics
+/// Panics if no `HydratedSignal<T>` is found in context. Use [`try_use_hydrated`]
+/// for a non-panicking alternative.
 pub fn use_hydrated<T>() -> RwSignal<T>
 where
     T: Clone + Send + Sync + 'static,
@@ -214,14 +221,34 @@ where
     )
 }
 
-/// Helper to access the resource provided by `HydrateContext` or `HydrateContextWith`.
+/// Non-panicking variant of [`use_hydrated`]. Returns `None` if no context is found.
+pub fn try_use_hydrated<T>() -> Option<RwSignal<T>>
+where
+    T: Clone + Send + Sync + 'static,
+{
+    use_context::<HydratedSignal<T>>().map(|s| s.0)
+}
+
+/// Helper to access the resource provided by any `Hydrate*` component.
+///
+/// # Panics
+/// Panics if no `LocalResource<T>` is found in context. Use [`try_use_hydrated_resource`]
+/// for a non-panicking alternative.
 pub fn use_hydrated_resource<T>() -> LocalResource<T>
 where
     T: Clone + Send + Sync + 'static,
 {
     use_context::<LocalResource<T>>().expect(
-        "Hydrated Resource not found. Did you wrap this part of the tree in <HydrateContext /> or <HydrateContextWith />?",
+        "Hydrated Resource not found. Did you wrap this part of the tree in <HydrateState />, <HydrateContext />, <HydrateStateWith />, or <HydrateContextWith />?",
     )
+}
+
+/// Non-panicking variant of [`use_hydrated_resource`]. Returns `None` if no context is found.
+pub fn try_use_hydrated_resource<T>() -> Option<LocalResource<T>>
+where
+    T: Clone + Send + Sync + 'static,
+{
+    use_context::<LocalResource<T>>()
 }
 
 #[cfg(test)]

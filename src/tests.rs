@@ -146,7 +146,7 @@ fn test_use_hydrated_panic() {
 }
 
 #[test]
-#[should_panic(expected = "Hydrated Resource not found. Did you wrap this part of the tree in <HydrateContext /> or <HydrateContextWith />?")]
+#[should_panic(expected = "Hydrated Resource not found. Did you wrap this part of the tree in <HydrateState />, <HydrateContext />, <HydrateStateWith />, or <HydrateContextWith />?")]
 fn test_use_hydrated_resource_panic() {
     let owner = Owner::new_root(None);
     owner.with(|| {
@@ -180,4 +180,83 @@ fn test_signal_wrappers() {
         assert_eq!(h1, h2);
         assert!(format!("{:?}", h1).contains("HydratedSignal"));
     });
+}
+
+#[test]
+fn test_try_use_hydrated_returns_some_when_context_exists() {
+    let owner = Owner::new_root(None);
+    owner.with(|| {
+        let signal = RwSignal::new(ThemeState { theme: "dark".into() });
+        provide_context(HydratedSignal(signal));
+
+        let result = try_use_hydrated::<ThemeState>();
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().get().theme, "dark");
+    });
+}
+
+#[test]
+fn test_try_use_hydrated_returns_none_when_no_context() {
+    let owner = Owner::new_root(None);
+    owner.with(|| {
+        let result = try_use_hydrated::<ThemeState>();
+        assert!(result.is_none());
+    });
+}
+
+#[tokio::test]
+async fn test_try_use_hydrated_resource_returns_some_when_context_exists() {
+    let _ = any_spawner::Executor::init_tokio();
+    let local = tokio::task::LocalSet::new();
+    local.run_until(async {
+        let owner = Owner::new_root(None);
+        owner.with(|| {
+            let _ = view! {
+                <HydrateContextWith
+                    ssr_value=|| ThemeState { theme: "dark".into() }
+                    fetcher=|| async { Ok(ThemeState { theme: "light".into() }) }
+                >
+                    {move || {
+                        let result = try_use_hydrated_resource::<ThemeState>();
+                        assert!(result.is_some());
+                        "".into_view()
+                    }}
+                </HydrateContextWith>
+            };
+        });
+    }).await;
+}
+
+#[test]
+fn test_try_use_hydrated_resource_returns_none_when_no_context() {
+    let owner = Owner::new_root(None);
+    owner.with(|| {
+        let result = try_use_hydrated_resource::<ThemeState>();
+        assert!(result.is_none());
+    });
+}
+
+#[tokio::test]
+async fn test_hydrate_state_with_provides_resource() {
+    let _ = any_spawner::Executor::init_tokio();
+    let local = tokio::task::LocalSet::new();
+    local.run_until(async {
+        let owner = Owner::new_root(None);
+        owner.with(|| {
+            let _ = view! {
+                <HydrateStateWith
+                    ssr_value=|| ThemeState { theme: "dark".into() }
+                    fetcher=|| async { Ok(ThemeState { theme: "light".into() }) }
+                />
+                {move || {
+                    // Both signal and resource should now be available under HydrateStateWith
+                    let signal = use_hydrated::<ThemeState>();
+                    let resource = use_hydrated_resource::<ThemeState>();
+                    assert_eq!(signal.get_untracked().theme, "dark");
+                    let _ = resource; // resource exists, not None
+                    "".into_view()
+                }}
+            };
+        });
+    }).await;
 }

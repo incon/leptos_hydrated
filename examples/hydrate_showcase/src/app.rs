@@ -71,28 +71,33 @@ fn set_cookie(cookie: &str) {
     );
 }
 
+// --- Shared Query Parsing Helper ---
+
+/// Extracts a single parameter value from a raw query string (without leading `?`).
+fn parse_query_param(query: &str, key: &str) -> Option<String> {
+    let prefix = format!("{}=", key);
+    query
+        .split('&')
+        .find(|s| s.starts_with(prefix.as_str()))
+        .and_then(|s| s.strip_prefix(prefix.as_str()))
+        .map(|s| s.to_string())
+}
+
 // --- Granular State Readers ---
 
 fn read_tab_state() -> TabState {
     #[cfg(feature = "ssr")]
     {
         use http::request::Parts;
-        let mut active_tab = "cookie".to_string();
-        if let Some(parts) = use_context::<Parts>() {
-            let query_str = parts.uri.query().unwrap_or_default();
-            if let Some(tab) = query_str
-                .split('&')
-                .find(|s| s.starts_with("tab="))
-                .and_then(|s| s.strip_prefix("tab="))
-            {
-                active_tab = tab.to_string();
-            }
-        }
+        let active_tab = use_context::<Parts>()
+            .and_then(|parts| {
+                parse_query_param(parts.uri.query().unwrap_or_default(), "tab")
+            })
+            .unwrap_or_else(|| "cookie".to_string());
         TabState(active_tab)
     }
     #[cfg(not(feature = "ssr"))]
     {
-        let mut active_tab = "cookie".to_string();
         let query_str = window()
             .location()
             .search()
@@ -100,13 +105,8 @@ fn read_tab_state() -> TabState {
             .strip_prefix('?')
             .unwrap_or_default()
             .to_string();
-        if let Some(tab) = query_str
-            .split('&')
-            .find(|s| s.starts_with("tab="))
-            .and_then(|s| s.strip_prefix("tab="))
-        {
-            active_tab = tab.to_string();
-        }
+        let active_tab = parse_query_param(&query_str, "tab")
+            .unwrap_or_else(|| "cookie".to_string());
         TabState(active_tab)
     }
 }
@@ -115,22 +115,14 @@ fn read_referral_state() -> ReferralState {
     #[cfg(feature = "ssr")]
     {
         use http::request::Parts;
-        let mut referral = None;
-        if let Some(parts) = use_context::<Parts>() {
-            let query_str = parts.uri.query().unwrap_or_default();
-            if let Some(r) = query_str
-                .split('&')
-                .find(|s| s.starts_with("ref="))
-                .and_then(|s| s.strip_prefix("ref="))
-            {
-                referral = Some(r.to_string());
-            }
-        }
+        let referral = use_context::<Parts>()
+            .and_then(|parts| {
+                parse_query_param(parts.uri.query().unwrap_or_default(), "ref")
+            });
         ReferralState(referral)
     }
     #[cfg(not(feature = "ssr"))]
     {
-        let mut referral = None;
         let query_str = window()
             .location()
             .search()
@@ -138,14 +130,7 @@ fn read_referral_state() -> ReferralState {
             .strip_prefix('?')
             .unwrap_or_default()
             .to_string();
-        if let Some(r) = query_str
-            .split('&')
-            .find(|s| s.starts_with("ref="))
-            .and_then(|s| s.strip_prefix("ref="))
-        {
-            referral = Some(r.to_string());
-        }
-        ReferralState(referral)
+        ReferralState(parse_query_param(&query_str, "ref"))
     }
 }
 
@@ -217,14 +202,8 @@ pub async fn fetch_tab_state() -> Result<TabState, ServerFnError> {
     if let Some(parts) = use_context::<Parts>() {
         if let Some(referer) = parts.headers.get("referer").and_then(|r| r.to_str().ok()) {
             if let Ok(url) = http::Uri::try_from(referer) {
-                if let Some(query_str) = url.query() {
-                    if let Some(tab) = query_str
-                        .split('&')
-                        .find(|s| s.starts_with("tab="))
-                        .and_then(|s| s.strip_prefix("tab="))
-                    {
-                        state.0 = tab.to_string();
-                    }
+                if let Some(tab) = url.query().and_then(|q| parse_query_param(q, "tab")) {
+                    state.0 = tab;
                 }
             }
         }
@@ -239,14 +218,8 @@ pub async fn fetch_referral_state() -> Result<ReferralState, ServerFnError> {
     if let Some(parts) = use_context::<Parts>() {
         if let Some(referer) = parts.headers.get("referer").and_then(|r| r.to_str().ok()) {
             if let Ok(url) = http::Uri::try_from(referer) {
-                if let Some(query_str) = url.query() {
-                    if let Some(r) = query_str
-                        .split('&')
-                        .find(|s| s.starts_with("ref="))
-                        .and_then(|s| s.strip_prefix("ref="))
-                    {
-                        state.0 = Some(r.to_string());
-                    }
+                if let Some(r) = url.query().and_then(|q| parse_query_param(q, "ref")) {
+                    state.0 = Some(r);
                 }
             }
         }
