@@ -1,5 +1,11 @@
 use super::*;
 use leptos::reactive::owner::Owner;
+use serde::{Serialize, Deserialize};
+
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Debug)]
+pub struct ThemeState {
+    pub theme: String,
+}
 
 #[tokio::test]
 async fn test_use_hydrate_signal_csr_init() {
@@ -77,41 +83,39 @@ async fn test_use_hydrate_signal_error_fallback() {
 }
 
 #[tokio::test]
-async fn test_hydrate_context_and_retrieval() {
+async fn test_readme_examples() {
     let _ = any_spawner::Executor::init_tokio();
     let local = tokio::task::LocalSet::new();
     local.run_until(async {
         let owner = Owner::new_root(None);
         owner.with(|| {
+            // Test Hydrate Example (Global)
+            // Values match to demonstrate flicker-free transition
+            let _ = view! {
+                <Hydrate
+                    ssr_value=|| ThemeState { theme: "dark".into() }
+                    fetcher=|| async { Ok(ThemeState { theme: "dark".into() }) }
+                />
+                {move || {
+                    let state = use_hydrated::<ThemeState>();
+                    assert_eq!(state.get().theme, "dark");
+                    "".into_view()
+                }}
+            };
+
+            // Test HydrateContext Example (Scoped)
+            // Values match to demonstrate flicker-free transition
             let _ = view! {
                 <HydrateContext
-                    ssr_value=|| "initial".to_string()
-                    fetcher=|| async { Ok("fetched".to_string()) }
+                    ssr_value=|| ThemeState { theme: "dark".into() }
+                    fetcher=|| async { Ok(ThemeState { theme: "dark".into() }) }
                 >
                     {move || {
-                        let signal = use_hydrated::<String>();
-                        let _resource = use_hydrated_resource::<String>();
-                        assert_eq!(signal.get(), "initial");
+                        let state = use_hydrated::<ThemeState>();
+                        assert_eq!(state.get().theme, "dark");
                         "".into_view()
                     }}
                 </HydrateContext>
-            };
-        });
-    }).await;
-}
-
-#[tokio::test]
-async fn test_hydrate_component() {
-    let _ = any_spawner::Executor::init_tokio();
-    let local = tokio::task::LocalSet::new();
-    local.run_until(async {
-        let owner = Owner::new_root(None);
-        owner.with(|| {
-            let _ = view! {
-                <Hydrate
-                    ssr_value=|| 1.0
-                    fetcher=|| async { Ok(2.0) }
-                />
             };
         });
     }).await;

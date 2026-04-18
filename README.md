@@ -18,7 +18,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-leptos_hydrated = "0.3.0"
+leptos_hydrated = "0.3"
 ```
 
 ## Quick Start
@@ -42,9 +42,11 @@ Provides global state via context. It doesn't matter where you place it in the t
 #[component]
 pub fn App() -> impl IntoView {
     view! {
+        // ssr_value and fetcher should ideally match on initial load 
+        // to ensure zero visual flickering.
         <Hydrate
-            ssr_value=move || ThemeState { theme: read_theme_cookie() }
-            fetcher=|| async { Ok(ThemeState { theme: read_theme_cookie() }) }
+            ssr_value=move || ThemeState { theme: "dark".into() }
+            fetcher=|| async { Ok(ThemeState { theme: "dark".into() }) }
         />
         <MainContent />
     }
@@ -67,9 +69,11 @@ Provides scoped feature state to all descendants via the standard Leptos context
 #[component]
 fn ProfileSection() -> impl IntoView {
     view! {
+        // By using the same source (e.g., a cookie) for both,
+        // you guarantee a perfectly smooth hydration hand-off.
         <HydrateContext
-            ssr_value=|| read_theme_cookie()
-            fetcher=|| async { Ok(read_theme_cookie()) }
+            ssr_value=|| ThemeState { theme: "dark".into() }
+            fetcher=|| async { Ok(ThemeState { theme: "dark".into() }) }
         >
             <ThemedComponent />
         </HydrateContext>
@@ -78,8 +82,8 @@ fn ProfileSection() -> impl IntoView {
 
 #[component]
 fn ThemedComponent() -> impl IntoView {
-    let theme = use_hydrated::<String>();
-    view! { <div class=move || theme.get()> "Flicker-free theme!" </div> }
+    let state = use_hydrated::<ThemeState>();
+    view! { <div class=move || state.get().theme> "Flicker-free theme!" </div> }
 }
 ```
 
