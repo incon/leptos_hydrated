@@ -34,12 +34,14 @@
 //!
 //! impl Hydratable for ThemeState {
 //!     fn initial() -> Self {
-//!         // Read from cookie/URL synchronously
+//!         // Read synchronously from the browser (e.g. a cookie or URL param).
+//!         // This runs on both server and client — this is what the first frame sees.
 //!         ThemeState { theme: "dark".into() }
 //!     }
 //!     async fn fetch() -> Result<Self, ServerFnError> {
-//!         // Use state already in the browser or refresh from API asynchronously
-//!         Ok(ThemeState { theme: "light".into() })
+//!         // Re-read from the same source via a server function.
+//!         // Returns the same value as initial() — no state change on hydration.
+//!         Ok(ThemeState { theme: "dark".into() })
 //!     }
 //! }
 //!

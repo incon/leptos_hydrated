@@ -9,12 +9,15 @@ pub struct ThemeState {
 
 impl Hydratable for ThemeState {
     fn initial() -> Self {
-        // Read from cookie/URL synchronously
+        // In real usage this reads from a cookie or URL param synchronously.
+        // Both initial() and fetch() read from the same source, so the value
+        // is identical on first frame and after hydration — zero flicker.
         ThemeState { theme: "dark".into() }
     }
     async fn fetch() -> Result<Self, ServerFnError> {
-        // Use state already in the browser or refresh from API asynchronously
-        Ok(ThemeState { theme: "light".into() })
+        // Re-reads from the same source via a server function.
+        // Matches initial() — state does not change on hydration.
+        Ok(ThemeState { theme: "dark".into() })
     }
 }
 
@@ -75,7 +78,7 @@ async fn test_manual_hydration_example() {
             let _ = view! {
                 <HydrateStateWith
                     ssr_value=|| ThemeState { theme: "dark".into() }
-                    fetcher=|| async { Ok(ThemeState { theme: "light".into() }) }
+                    fetcher=|| async { Ok(ThemeState { theme: "dark".into() }) }
                 />
                 {move || {
                     let state = use_hydrated::<ThemeState>();
@@ -94,6 +97,8 @@ async fn test_use_hydrate_signal_logic() {
     local.run_until(async {
         let owner = Owner::new_root(None);
         owner.with(|| {
+            // Uses distinct values (42 vs 100) to verify that the signal is
+            // initialized synchronously from ssr_value, not from the fetcher.
             let (signal, _resource) = use_hydrate_signal(
                 || 42,
                 || async {
@@ -214,7 +219,7 @@ async fn test_try_use_hydrated_resource_returns_some_when_context_exists() {
             let _ = view! {
                 <HydrateContextWith
                     ssr_value=|| ThemeState { theme: "dark".into() }
-                    fetcher=|| async { Ok(ThemeState { theme: "light".into() }) }
+                    fetcher=|| async { Ok(ThemeState { theme: "dark".into() }) }
                 >
                     {move || {
                         let result = try_use_hydrated_resource::<ThemeState>();
@@ -246,7 +251,7 @@ async fn test_hydrate_state_with_provides_resource() {
             let _ = view! {
                 <HydrateStateWith
                     ssr_value=|| ThemeState { theme: "dark".into() }
-                    fetcher=|| async { Ok(ThemeState { theme: "light".into() }) }
+                    fetcher=|| async { Ok(ThemeState { theme: "dark".into() }) }
                 />
                 {move || {
                     // Both signal and resource should now be available under HydrateStateWith
