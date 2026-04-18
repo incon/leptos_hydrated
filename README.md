@@ -37,17 +37,19 @@ pub struct AppState {
 
 #### `Hydrate` (Global State)
 
-Provides global state to its children via a render prop. It doesn't matter where you place it in the tree; the state remains global to the provided closure.
+Provides global state to its children via a render prop. This example shows how `ssr_value` and `fetcher` match on the first render by reading from a common synchronous source (like cookies), ensuring the client initializes with exactly what the server rendered.
 
 ```rust
 #[component]
 pub fn App() -> impl IntoView {
     view! {
         <Hydrate
-            ssr_value=move || read_initial_state_from_cookies()
-            fetcher=|| fetch_full_app_state()
-            children=move |state| {
-                view! { <MainContent state /> }
+            // Read synchronously from cookies on both server and client
+            ssr_value=move || read_user_cookie()
+            // Fetch the full profile asynchronously (initially matches cookie)
+            fetcher=|| async { Ok(read_user_cookie()) }
+            children=move |user| {
+                view! { <MainContent user /> }
             }
         />
     }
@@ -56,25 +58,26 @@ pub fn App() -> impl IntoView {
 
 #### `HydrateContext` (Scoped State)
 
-Provides scoped feature state to all descendants via the standard Leptos context API. Best for specialized features that need deep access without prop drilling.
+Provides scoped feature state to all descendants via the standard Leptos context API. By matching `ssr_value` with the initial `fetcher` state, you ensure zero visual flickering during the hydration transition.
 
 ```rust
 #[component]
-fn FeatureSection() -> impl IntoView {
+fn ProfileSection() -> impl IntoView {
     view! {
         <HydrateContext
-            ssr_value=|| "Guest".to_string()
-            fetcher=|| async { Ok("Leptos User".to_string()) }
+            // Both read from the same source to ensure matching first frame
+            ssr_value=|| read_theme_cookie()
+            fetcher=|| async { Ok(read_theme_cookie()) }
         >
-            <SubComponent />
+            <ThemedComponent />
         </HydrateContext>
     }
 }
 
 #[component]
-fn SubComponent() -> impl IntoView {
-    let name = use_hydrated::<String>();
-    view! { <p>"User: " {move || name.get()}</p> }
+fn ThemedComponent() -> impl IntoView {
+    let theme = use_hydrated::<String>();
+    view! { <div class=move || theme.get()> "Flicker-free theme!" </div> }
 }
 ```
 
