@@ -2,15 +2,13 @@
 
 A lightweight library for **flicker-free interactive state hydration** in [Leptos 0.8](https://leptos.dev/) that works with or without JavaScript.
 
-This library provides primitives to synchronize state from the server to the client seamlessly, ensuring that the initial render on the client matches the server-rendered HTML exactly, preventing "flashes" of default state before the client-side hydration completes.
-
 ## Features
 
 - **Flicker-Free:** Initializes signals with server-provided state immediately during hydration.
 - **Isomorphic:** Works naturally in both SSR and CSR contexts.
-- **Global State:** Use the `Hydrate` component for global application state.
-- **Scoped State:** Use the `HydrateContext` component for scoped feature state via context.
-- **Warning-Free:** Uses `LocalResource` to avoid hydration mismatch warnings and optimize performance.
+- **Trait-Based:** Use the `Hydratable` trait to define state and refresh logic in one place.
+- **Global & Scoped:** Support for both global application state and scoped feature state.
+- **Zero Mismatch:** Designed to avoid hydration warnings by matching server and client initial renders exactly.
 
 ## Installation
 
@@ -23,37 +21,54 @@ leptos_hydrated = "0.4"
 
 ## Quick Start
 
-### 1. Define your State
+### 1. Define your State with `Hydratable`
+
+The most robust way to use `leptos_hydrated` is by implementing the `Hydratable` trait. This encapsulates your synchronous "seed" logic (e.g., cookies) and your asynchronous "refresh" logic (e.g., API calls).
 
 ```rust
-#[derive(Clone, Default, Serialize, Deserialize)]
+use leptos::prelude::*;
+use leptos_hydrated::*;
+use serde::{Serialize, Deserialize};
+
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Debug)]
 pub struct ThemeState {
     pub theme: String,
+}
+
+impl Hydratable for ThemeState {
+    fn initial() -> Self {
+        // This runs on both server and client to "seed" the state.
+        // Usually read from a cookie or URL parameter.
+        ThemeState { theme: "dark".into() }
+    }
+
+    async fn fetch() -> Result<Self, ServerFnError> {
+        // This runs ONLY on the client to refresh the state with full data.
+        Ok(ThemeState { theme: "light".into() })
+    }
 }
 ```
 
 ### 2. Choose your hydration strategy
 
-#### `Hydrate` (Global State)
+#### `HydrateState` (Global State)
 
-Provides global state via context. It doesn't matter where you place it in the tree; the state is inherently global.
+Provides global state via context. Place it anywhere in your view tree.
 
 ```rust
 #[component]
 pub fn App() -> impl IntoView {
     view! {
-        // ssr_value and fetcher should ideally match on initial load 
-        // to ensure zero visual flickering.
-        <Hydrate
-            ssr_value=move || ThemeState { theme: "dark".into() }
-            fetcher=|| async { Ok(ThemeState { theme: "dark".into() }) }
-        />
+        // Initialize global theme state
+        <HydrateState<ThemeState> />
+        
         <MainContent />
     }
 }
 
 #[component]
 fn MainContent() -> impl IntoView {
+    // Access the hydrated signal anywhere
     let state = use_hydrated::<ThemeState>();
     view! {
         <p>"Theme: " {move || state.get().theme}</p>
@@ -63,67 +78,50 @@ fn MainContent() -> impl IntoView {
 
 #### `HydrateContext` (Scoped State)
 
-Provides scoped feature state to all descendants via the standard Leptos context API. By matching `ssr_value` with the initial `fetcher` state, you ensure zero visual flickering during the hydration transition.
+Provides scoped state to a specific branch of the component tree.
 
 ```rust
 #[component]
 fn ProfileSection() -> impl IntoView {
     view! {
-        // By using the same source (e.g., a cookie) for both,
-        // you guarantee a perfectly smooth hydration hand-off.
-        <HydrateContext
-            ssr_value=|| ThemeState { theme: "dark".into() }
-            fetcher=|| async { Ok(ThemeState { theme: "dark".into() }) }
-        >
-            <ThemedComponent />
-        </HydrateContext>
+        <HydrateContext<UserState>>
+            <ProfileInfo />
+        </HydrateContext<UserState>>
     }
-}
-
-#[component]
-fn ThemedComponent() -> impl IntoView {
-    let state = use_hydrated::<ThemeState>();
-    view! { <div class=move || state.get().theme> "Flicker-free theme!" </div> }
 }
 ```
 
-## Best Practices: Specialized Contexts
+### 3. Manual Hydration (Advanced)
 
-For larger applications, it is a best practice to wrap `HydrateContext` in specialized components for specific feature scopes.
+If you don't want to use the trait, you can use the base components directly:
 
 ```rust
-#[component]
-fn ProfileContext(children: Children) -> impl IntoView {
-    view! {
-        <HydrateContext 
-            ssr_value=read_profile_state 
-            fetcher=fetch_profile_state
-        >
-            {children()}
-        </HydrateContext>
-    }
-}
-
 view! {
-    <ProfileContext>
-        <Router>
-            <Routes>
-                <Route path=StaticSegment("") view=HomePage/>
-            </Routes>
-        </Router>
-    </ProfileContext>
+    // Global
+    <HydrateStateWith
+        ssr_value=|| ThemeState { theme: "dark".into() }
+        fetcher=|| async { Ok(ThemeState { theme: "light".into() }) }
+    />
+    
+    // Scoped
+    <HydrateContextWith
+        ssr_value=|| ThemeState { theme: "dark".into() }
+        fetcher=|| async { Ok(ThemeState { theme: "light".into() }) }
+    >
+        <ProfileInfo />
+    </HydrateContextWith>
 }
 ```
 
-## Example Project
+## Why use this instead of a standard `Resource`?
 
-A full demonstration is available in the `examples/hydrate_showcase` directory. It features:
-- Dark/Light mode synchronization via cookies.
-- Authentication state persistence.
-- URL Parameter synchronization with hydrated state.
+Standard Leptos `Resource`s are fantastic for data that lives on the server and needs to be serialized to the client. However, they can cause "flickers" or require `Suspense` masks for data you **already have** on both sides (like a cookie).
 
-To run the example:
-```bash
-cd examples/hydrate_showcase
-cargo leptos watch
-```
+`leptos_hydrated` allows you to:
+1.  **Render immediately** on the server using a synchronous value.
+2.  **Hydrate immediately** on the client with that same value (no flicker!).
+3.  **Refresh in the background** once the WASM is ready to get the latest data.
+
+## Documentation
+
+Full API documentation is available at [docs.rs/leptos_hydrated](https://docs.rs/leptos_hydrated).

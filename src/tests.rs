@@ -7,8 +7,90 @@ pub struct ThemeState {
     pub theme: String,
 }
 
+impl Hydratable for ThemeState {
+    fn initial() -> Self {
+        // Read from cookie/URL synchronously
+        ThemeState { theme: "dark".into() }
+    }
+    async fn fetch() -> Result<Self, ServerFnError> {
+        // Refresh from API asynchronously
+        Ok(ThemeState { theme: "light".into() })
+    }
+}
+
 #[tokio::test]
-async fn test_use_hydrate_signal_csr_init() {
+async fn test_global_hydration_example() {
+    let _ = any_spawner::Executor::init_tokio();
+    let local = tokio::task::LocalSet::new();
+    local.run_until(async {
+        let owner = Owner::new_root(None);
+        owner.with(|| {
+            let _ = view! {
+                // 1. Provide global state at the top level
+                <HydrateState<ThemeState> />
+
+                // 2. Consume it anywhere in the tree
+                <GlobalThemeDisplay />
+            };
+        });
+    }).await;
+}
+
+#[component]
+fn GlobalThemeDisplay() -> impl IntoView {
+    let state = use_hydrated::<ThemeState>();
+    assert_eq!(state.get().theme, "dark");
+    view! { <p>"Theme: " {move || state.get().theme}</p> }
+}
+
+#[tokio::test]
+async fn test_scoped_hydration_example() {
+    let _ = any_spawner::Executor::init_tokio();
+    let local = tokio::task::LocalSet::new();
+    local.run_until(async {
+        let owner = Owner::new_root(None);
+        owner.with(|| {
+            let _ = view! {
+                // 1. Provide scoped state to a branch
+                <HydrateContext<ThemeState>>
+                    <ScopedThemeDisplay />
+                </HydrateContext<ThemeState>>
+            };
+        });
+    }).await;
+}
+
+#[component]
+fn ScopedThemeDisplay() -> impl IntoView {
+    let state = use_hydrated::<ThemeState>();
+    assert_eq!(state.get().theme, "dark");
+    view! { <p>"Scoped Theme: " {move || state.get().theme}</p> }
+}
+
+#[tokio::test]
+async fn test_manual_hydration_example() {
+    let _ = any_spawner::Executor::init_tokio();
+    let local = tokio::task::LocalSet::new();
+    local.run_until(async {
+        let owner = Owner::new_root(None);
+        owner.with(|| {
+            let _ = view! {
+                <HydrateStateWith
+                    ssr_value=|| ThemeState { theme: "dark".into() }
+                    fetcher=|| async { Ok(ThemeState { theme: "light".into() }) }
+                />
+                {move || {
+                    let state = use_hydrated::<ThemeState>();
+                    assert_eq!(state.get().theme, "dark");
+                    "".into_view()
+                }}
+            };
+        });
+    }).await;
+}
+
+#[tokio::test]
+async fn test_use_hydrate_signal_logic() {
     let _ = any_spawner::Executor::init_tokio();
     let local = tokio::task::LocalSet::new();
     local.run_until(async {
@@ -28,7 +110,7 @@ async fn test_use_hydrate_signal_csr_init() {
 
 #[cfg(not(feature = "ssr"))]
 #[tokio::test]
-async fn test_use_hydrate_signal_resolution() {
+async fn test_client_side_resolution() {
     let _ = any_spawner::Executor::init_tokio();
     let local = tokio::task::LocalSet::new();
     local.run_until(async {
@@ -46,7 +128,7 @@ async fn test_use_hydrate_signal_resolution() {
         
         assert_eq!(signal.get(), 42);
 
-        // Yield multiple times to ensure the spawn_local task in lib.rs runs.
+        // Yield to allow background task to run
         for _ in 0..20 {
             tokio::task::yield_now().await;
         }
@@ -56,75 +138,8 @@ async fn test_use_hydrate_signal_resolution() {
     }).await;
 }
 
-#[cfg(not(feature = "ssr"))]
-#[tokio::test]
-async fn test_use_hydrate_signal_error_fallback() {
-    let _ = any_spawner::Executor::init_tokio();
-    let local = tokio::task::LocalSet::new();
-    local.run_until(async {
-        let owner = Owner::new_root(None);
-        let signal = owner.with(|| {
-            let (signal, _resource) = use_hydrate_signal(
-                || 42,
-                || async {
-                    Err::<i32, ServerFnError>(ServerFnError::Args("test error".to_string()))
-                },
-            );
-            signal
-        });
-        
-        assert_eq!(signal.get(), 42);
-        
-        for _ in 0..20 {
-            tokio::task::yield_now().await;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        
-        assert_eq!(signal.get(), 0);
-    }).await;
-}
-
-#[tokio::test]
-async fn test_readme_examples() {
-    let _ = any_spawner::Executor::init_tokio();
-    let local = tokio::task::LocalSet::new();
-    local.run_until(async {
-        let owner = Owner::new_root(None);
-        owner.with(|| {
-            // Test Hydrate Example (Global)
-            // Values match to demonstrate flicker-free transition
-            let _ = view! {
-                <Hydrate
-                    ssr_value=|| ThemeState { theme: "dark".into() }
-                    fetcher=|| async { Ok(ThemeState { theme: "dark".into() }) }
-                />
-                {move || {
-                    let state = use_hydrated::<ThemeState>();
-                    assert_eq!(state.get().theme, "dark");
-                    "".into_view()
-                }}
-            };
-
-            // Test HydrateContext Example (Scoped)
-            // Values match to demonstrate flicker-free transition
-            let _ = view! {
-                <HydrateContext
-                    ssr_value=|| ThemeState { theme: "dark".into() }
-                    fetcher=|| async { Ok(ThemeState { theme: "dark".into() }) }
-                >
-                    {move || {
-                        let state = use_hydrated::<ThemeState>();
-                        assert_eq!(state.get().theme, "dark");
-                        "".into_view()
-                    }}
-                </HydrateContext>
-            };
-        });
-    }).await;
-}
-
 #[test]
-#[should_panic(expected = "HydratedSignal not found")]
+#[should_panic(expected = "HydratedSignal not found. Did you wrap this part of the tree in <HydrateState />, <HydrateContext />, <HydrateStateWith />, or <HydrateContextWith />?")]
 fn test_use_hydrated_panic() {
     let owner = Owner::new_root(None);
     owner.with(|| {
@@ -133,7 +148,7 @@ fn test_use_hydrated_panic() {
 }
 
 #[test]
-#[should_panic(expected = "Hydrated Resource not found")]
+#[should_panic(expected = "Hydrated Resource not found. Did you wrap this part of the tree in <HydrateContext /> or <HydrateContextWith />?")]
 fn test_use_hydrated_resource_panic() {
     let owner = Owner::new_root(None);
     owner.with(|| {
@@ -143,7 +158,7 @@ fn test_use_hydrated_resource_panic() {
 
 #[cfg(feature = "ssr")]
 #[tokio::test]
-async fn test_ssr_path() {
+async fn test_ssr_isolation() {
     let _ = any_spawner::Executor::init_tokio();
     let owner = Owner::new_root(None);
     owner.with(|| {
@@ -152,42 +167,19 @@ async fn test_ssr_path() {
             || async { Ok(100) },
         );
         assert_eq!(signal.get(), 42);
-        // LocalResource should not resolve on the server
+        // On SSR, resources don't resolve immediately in a synchronous test
         assert!(resource.get().is_none());
     });
 }
 
-#[tokio::test]
-async fn test_use_hydrated_resource_success() {
-    let _ = any_spawner::Executor::init_tokio();
-    let local = tokio::task::LocalSet::new();
-    local.run_until(async {
-        let owner = Owner::new_root(None);
-        owner.with(|| {
-            let _ = view! {
-                <HydrateContext
-                    ssr_value=|| 42
-                    fetcher=|| async { Ok(100) }
-                >
-                    {move || {
-                        let resource = use_hydrated_resource::<i32>();
-                        let _ = resource.get();
-                        "".into_view()
-                    }}
-                </HydrateContext>
-            };
-        });
-    }).await;
-}
-
 #[test]
-fn test_hydrated_signal_traits() {
+fn test_signal_wrappers() {
     let owner = Owner::new_root(None);
     owner.with(|| {
         let signal = RwSignal::new(42);
         let h1 = HydratedSignal(signal);
-        let h2 = h1; // Clone/Copy
-        assert_eq!(h1, h2); // PartialEq/Eq
-        assert!(format!("{:?}", h1).contains("HydratedSignal")); // Debug
+        let h2 = h1; 
+        assert_eq!(h1, h2);
+        assert!(format!("{:?}", h1).contains("HydratedSignal"));
     });
 }

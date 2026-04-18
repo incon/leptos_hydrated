@@ -1,6 +1,6 @@
 use leptos::form::ActionForm;
 use leptos::prelude::*;
-use leptos_hydrated::{HydrateContext, use_hydrated};
+use leptos_hydrated::{HydrateContext, Hydratable, use_hydrated};
 use leptos_meta::{MetaTags, Stylesheet, Title, provide_meta_context};
 use leptos_router::{StaticSegment, components::*, hooks::query_signal};
 use serde::{Deserialize, Serialize};
@@ -8,14 +8,41 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Default, Serialize, Deserialize, Debug, PartialEq)]
 pub struct TabState(pub String);
 
+impl Hydratable for TabState {
+    fn initial() -> Self {
+        read_tab_state()
+    }
+    async fn fetch() -> Result<Self, ServerFnError> {
+        fetch_tab_state().await
+    }
+}
+
 #[derive(Clone, Default, Serialize, Deserialize, Debug, PartialEq)]
 pub struct ReferralState(pub Option<String>);
+
+impl Hydratable for ReferralState {
+    fn initial() -> Self {
+        read_referral_state()
+    }
+    async fn fetch() -> Result<Self, ServerFnError> {
+        fetch_referral_state().await
+    }
+}
 
 #[derive(Clone, Default, Serialize, Deserialize, Debug, PartialEq)]
 pub struct ProfileState {
     pub theme: String,
     pub is_authenticated: bool,
     pub profile: Option<UserProfile>,
+}
+
+impl Hydratable for ProfileState {
+    fn initial() -> Self {
+        read_profile_state()
+    }
+    async fn fetch() -> Result<Self, ServerFnError> {
+        fetch_profile_state().await
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
@@ -329,33 +356,6 @@ fn SyncHydratedState() -> impl IntoView {
     });
 }
 
-#[component]
-fn ProfileContext(children: Children) -> impl IntoView {
-    view! {
-        <HydrateContext ssr_value=read_profile_state fetcher=fetch_profile_state>
-            {children()}
-        </HydrateContext>
-    }
-}
-
-#[component]
-fn TabContext(children: Children) -> impl IntoView {
-    view! {
-        <HydrateContext ssr_value=read_tab_state fetcher=fetch_tab_state>
-            {children()}
-        </HydrateContext>
-    }
-}
-
-#[component]
-fn ReferralContext(children: Children) -> impl IntoView {
-    view! {
-        <HydrateContext ssr_value=read_referral_state fetcher=fetch_referral_state>
-            {children()}
-        </HydrateContext>
-    }
-}
-
 pub fn shell(options: LeptosOptions) -> impl IntoView {
     view! {
         <!DOCTYPE html>
@@ -382,10 +382,10 @@ pub fn App() -> impl IntoView {
         <Stylesheet id="leptos" href="/pkg/hydrate_showcase.css" />
         <Title text="Hydrate Showcase" />
 
-        <ProfileContext>
+        <HydrateContext<ProfileState>>
             <Router>
-                <TabContext>
-                    <ReferralContext>
+                <HydrateContext<TabState>>
+                    <HydrateContext<ReferralState>>
                         <SyncHydratedState />
                         <ThemeWrapper>
                             <PromoBanner />
@@ -393,10 +393,10 @@ pub fn App() -> impl IntoView {
                                 <Route path=StaticSegment("") view=HomePage />
                             </Routes>
                         </ThemeWrapper>
-                    </ReferralContext>
-                </TabContext>
+                    </HydrateContext<ReferralState>>
+                </HydrateContext<TabState>>
             </Router>
-        </ProfileContext>
+        </HydrateContext<ProfileState>>
     }
 }
 

@@ -19,25 +19,32 @@
 //!
 //! ## Examples
 //!
-//! ### Using `Hydrate` (Global State)
+//! ### Global Hydration (Trait-based)
 //!
 //! ```rust
 //! use leptos::prelude::*;
 //! use leptos_hydrated::*;
 //! use serde::{Serialize, Deserialize};
 //!
-//! #[derive(Clone, Default, Serialize, Deserialize)]
+//! #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Debug)]
 //! struct ThemeState { theme: String }
+//!
+//! impl Hydratable for ThemeState {
+//!     fn initial() -> Self {
+//!         // Sync seed (e.g., from cookie)
+//!         ThemeState { theme: "dark".into() }
+//!     }
+//!     async fn fetch() -> Result<Self, ServerFnError> {
+//!         // Async refresh
+//!         Ok(ThemeState { theme: "light".into() })
+//!     }
+//! }
 //!
 //! #[component]
 //! fn App() -> impl IntoView {
 //!     view! {
-//!         // Provide global state. The ssr_value and fetcher should match
-//!         // on the first render to ensure zero visual flickering.
-//!         <Hydrate
-//!             ssr_value=|| ThemeState { theme: "dark".into() }
-//!             fetcher=|| async { Ok(ThemeState { theme: "dark".into() }) }
-//!         />
+//!         // Provide global state
+//!         <HydrateState<ThemeState> />
 //!         <MainContent />
 //!     }
 //! }
@@ -49,38 +56,41 @@
 //! }
 //! ```
 //!
-//! ### Using `HydrateContext` (Scoped State)
+//! ### Scoped Hydration
 //!
 //! ```rust
-//! use leptos::prelude::*;
-//! use leptos_hydrated::*;
-//! use serde::{Serialize, Deserialize};
-//!
-//! #[derive(Clone, Default, Serialize, Deserialize)]
-//! struct UserState { name: String }
-//!
+//! # use leptos::prelude::*;
+//! # use leptos_hydrated::*;
+//! # #[derive(Clone, Default, serde::Serialize, serde::Deserialize, PartialEq, Debug)]
+//! # struct FeatureState { data: String }
+//! # impl Hydratable for FeatureState {
+//! #     fn initial() -> Self { Self::default() }
+//! #     async fn fetch() -> Result<Self, ServerFnError> { Ok(Self::default()) }
+//! # }
 //! #[component]
 //! fn FeatureSection() -> impl IntoView {
 //!     view! {
-//!         <HydrateContext
-//!             ssr_value=|| UserState { name: "Guest".into() }
-//!             fetcher=|| async { Ok(UserState { name: "Guest".into() }) }
-//!         >
-//!             <SubComponent />
-//!         </HydrateContext>
+//!         <HydrateContext<FeatureState>>
+//!             <FeatureContent />
+//!         </HydrateContext<FeatureState>>
 //!     }
 //! }
-//!
-//! #[component]
-//! fn SubComponent() -> impl IntoView {
-//!     let user = use_hydrated::<UserState>();
-//!     view! { <p>"Welcome, " {move || user.get().name}</p> }
-//! }
+//! # #[component] fn FeatureContent() -> impl IntoView { view! { "" } }
 //! ```
+
 
 use leptos::prelude::*;
 use serde::{Serialize, de::DeserializeOwned};
 use std::future::Future;
+
+/// A trait for types that can be hydrated automatically.
+pub trait Hydratable: Clone + Serialize + DeserializeOwned + Default + Send + Sync + 'static {
+    /// The synchronous initial state (e.g., read from cookies or URL parameters).
+    fn initial() -> Self;
+
+    /// The asynchronous fetcher for refreshing or getting full data.
+    fn fetch() -> impl Future<Output = Result<Self, ServerFnError>> + Send + 'static;
+}
 
 /// A wrapper for a hydrated global signal provided via context.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -88,11 +98,7 @@ pub struct HydratedSignal<T: 'static>(pub RwSignal<T>);
 
 /// The core hook for creating a hydrated signal.
 ///
-/// This creates a signal that is initialized synchronously from `ssr_value` on both
-/// server and client, and then updated with the result of `fetcher` once it resolves
-/// on the client.
-///
-/// This is the foundation for flicker-free hydration.
+/// This creates a signal that is initialized synchronously from `ssr_value()`.
 ///
 /// Returns a tuple of `(RwSignal<T>, LocalResource<T>)`.
 pub fn use_hydrate_signal<T, Fut>(
@@ -100,12 +106,14 @@ pub fn use_hydrate_signal<T, Fut>(
     fetcher: impl Fn() -> Fut + Send + Sync + 'static,
 ) -> (RwSignal<T>, LocalResource<T>)
 where
-    T: Clone + Serialize + DeserializeOwned + Default + Send + Sync + 'static,
+    T: Clone + Serialize + DeserializeOwned + Default + Send + Sync + 'static + std::fmt::Debug + PartialEq,
     Fut: Future<Output = Result<T, ServerFnError>> + Send + 'static,
 {
+    let initial_val = ssr_value();
+    let signal = RwSignal::new(initial_val);
+
     // Create the resource for hydration. We use LocalResource to avoid
-    // hydration mismatch warnings and redundant server-side execution,
-    // as the initial state is already provided by ssr_value().
+    // hydration mismatch warnings and redundant server-side execution.
     let resource = LocalResource::new(
         move || {
             let f = fetcher();
@@ -113,19 +121,9 @@ where
         },
     );
 
-    // Evaluate ssr_value() to get the initial synchronous state.
-    // On the server, this builds the first frame. On the client, this builds
-    // the hydration frame (matching the server) without prematurely reading the resource.
-    let initial_val = ssr_value();
-
-    let signal = RwSignal::new(initial_val);
-
-
     #[cfg(not(feature = "ssr"))]
     {
         // Use spawn_local to await the resource and update the signal.
-        // This ensures the update happens as soon as data is available,
-        // and is more reliably testable than a reactive Effect.
         leptos::task::spawn_local(async move {
             let val = resource.await;
             signal.set(val);
@@ -135,16 +133,47 @@ where
     (signal, resource)
 }
 
-/// A version of Hydrated that provides Global State to its descendants via context.
+/// A version of Hydrated that uses the `Hydratable` trait for its logic.
+#[component]
+pub fn HydrateState<T>(
+    #[prop(optional)] marker: std::marker::PhantomData<T>,
+) -> impl IntoView
+where
+    T: Hydratable + std::fmt::Debug + PartialEq,
+{
+    let _ = marker;
+    view! {
+        <HydrateStateWith ssr_value=T::initial fetcher=T::fetch />
+    }
+}
+
+/// A version of HydrateContext that uses the `Hydratable` trait for its logic.
+#[component]
+pub fn HydrateContext<T>(
+    children: Children,
+    #[prop(optional)] marker: std::marker::PhantomData<T>,
+) -> impl IntoView
+where
+    T: Hydratable + std::fmt::Debug + PartialEq,
+{
+    let _ = marker;
+    view! {
+        <HydrateContextWith ssr_value=T::initial fetcher=T::fetch>
+            {children()}
+        </HydrateContextWith>
+    }
+}
+
+/// A version of Hydrate that provides Global State to its descendants via context.
 ///
 /// Use `use_hydrated::<T>()` in child components to access the state.
 #[component]
-pub fn Hydrate<T, Fut>(
+pub fn HydrateStateWith<T, Fut>(
     ssr_value: impl Fn() -> T + 'static,
     fetcher: impl Fn() -> Fut + Send + Sync + 'static,
 ) -> impl IntoView
 where
-    T: Clone + Serialize + DeserializeOwned + Default + Send + Sync + 'static,
+    T: Clone + Serialize + DeserializeOwned + Default + Send + Sync + 'static + std::fmt::Debug + PartialEq,
     Fut: Future<Output = Result<T, ServerFnError>> + Send + 'static,
 {
     let (signal, _) = use_hydrate_signal(ssr_value, fetcher);
@@ -156,13 +185,13 @@ where
 /// Use `use_hydrated::<T>()` or `use_hydrated_resource::<T>()` in child components
 /// to access the state and resource.
 #[component]
-pub fn HydrateContext<T, Fut>(
+pub fn HydrateContextWith<T, Fut>(
     ssr_value: impl Fn() -> T + 'static,
     fetcher: impl Fn() -> Fut + Send + Sync + 'static,
     children: Children,
 ) -> impl IntoView
 where
-    T: Clone + Serialize + DeserializeOwned + Default + Send + Sync + 'static,
+    T: Clone + Serialize + DeserializeOwned + Default + Send + Sync + 'static + std::fmt::Debug + PartialEq,
     Fut: Future<Output = Result<T, ServerFnError>> + Send + 'static,
 {
     let (signal, resource) = use_hydrate_signal(ssr_value, fetcher);
@@ -171,23 +200,23 @@ where
     children()
 }
 
-/// Helper to access a signal provided by `HydrateContext` or `Hydrate`.
+/// Helper to access a signal provided by `HydrateContext` or `HydrateStateWith`.
 pub fn use_hydrated<T>() -> RwSignal<T>
 where
     T: Clone + Send + Sync + 'static,
 {
     use_context::<HydratedSignal<T>>().map(|s| s.0).expect(
-        "HydratedSignal not found. Did you wrap this part of the tree in <HydrateContext /> or <Hydrate />?",
+        "HydratedSignal not found. Did you wrap this part of the tree in <HydrateState />, <HydrateContext />, <HydrateStateWith />, or <HydrateContextWith />?",
     )
 }
 
-/// Helper to access the resource provided by `HydrateContext`.
+/// Helper to access the resource provided by `HydrateContext` or `HydrateContextWith`.
 pub fn use_hydrated_resource<T>() -> LocalResource<T>
 where
     T: Clone + Send + Sync + 'static,
 {
     use_context::<LocalResource<T>>().expect(
-        "Hydrated Resource not found. Did you wrap this part of the tree in <HydrateContext />?",
+        "Hydrated Resource not found. Did you wrap this part of the tree in <HydrateContext /> or <HydrateContextWith />?",
     )
 }
 
