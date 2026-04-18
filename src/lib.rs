@@ -13,7 +13,8 @@
 //!
 //! `leptos_hydrated` provides primitives to synchronize state from the server to the client
 //! synchronously during hydration. It allows you to:
-//! 1. Provide an initial state that is available on the very first frame (e.g., from cookies or URL params).
+//! 1. Provide an initial state that is available on the very first frame by leveraging state
+//!    already in the browser (e.g., from cookies or URL params).
 //! 2. Simultaneously start a client-side fetch to load full data.
 //! 3. Seamlessly transition from the initial state to the fetched state without UI flickering.
 //!
@@ -27,15 +28,17 @@
 //! use serde::{Serialize, Deserialize};
 //!
 //! #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Debug)]
-//! struct ThemeState { theme: String }
+//! pub struct ThemeState {
+//!     pub theme: String,
+//! }
 //!
 //! impl Hydratable for ThemeState {
 //!     fn initial() -> Self {
-//!         // Sync seed (e.g., from cookie)
+//!         // Read from cookie/URL synchronously
 //!         ThemeState { theme: "dark".into() }
 //!     }
 //!     async fn fetch() -> Result<Self, ServerFnError> {
-//!         // Async refresh
+//!         // Use state already in the browser or refresh from API asynchronously
 //!         Ok(ThemeState { theme: "light".into() })
 //!     }
 //! }
@@ -43,8 +46,10 @@
 //! #[component]
 //! fn App() -> impl IntoView {
 //!     view! {
-//!         // Provide global state
+//!         // 1. Provide state anywhere in the tree
 //!         <HydrateState<ThemeState> />
+//!
+//!         // 2. Consume it anywhere in the tree
 //!         <MainContent />
 //!     }
 //! }
@@ -52,7 +57,7 @@
 //! #[component]
 //! fn MainContent() -> impl IntoView {
 //!     let state = use_hydrated::<ThemeState>();
-//!     view! { <p>"Current theme: " {move || state.get().theme}</p> }
+//!     view! { <p>"Theme: " {move || state.get().theme}</p> }
 //! }
 //! ```
 //!
@@ -77,7 +82,6 @@
 //! }
 //! # #[component] fn FeatureContent() -> impl IntoView { view! { "" } }
 //! ```
-
 
 use leptos::prelude::*;
 use serde::{Serialize, de::DeserializeOwned};

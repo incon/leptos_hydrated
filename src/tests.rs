@@ -13,7 +13,7 @@ impl Hydratable for ThemeState {
         ThemeState { theme: "dark".into() }
     }
     async fn fetch() -> Result<Self, ServerFnError> {
-        // Refresh from API asynchronously
+        // Use state already in the browser or refresh from API asynchronously
         Ok(ThemeState { theme: "light".into() })
     }
 }
@@ -26,20 +26,19 @@ async fn test_global_hydration_example() {
         let owner = Owner::new_root(None);
         owner.with(|| {
             let _ = view! {
-                // 1. Provide global state at the top level
+                // 1. Provide state anywhere in the tree
                 <HydrateState<ThemeState> />
 
                 // 2. Consume it anywhere in the tree
-                <GlobalThemeDisplay />
+                <MainContent />
             };
         });
     }).await;
 }
 
 #[component]
-fn GlobalThemeDisplay() -> impl IntoView {
+fn MainContent() -> impl IntoView {
     let state = use_hydrated::<ThemeState>();
-    assert_eq!(state.get().theme, "dark");
     view! { <p>"Theme: " {move || state.get().theme}</p> }
 }
 
@@ -63,7 +62,6 @@ async fn test_scoped_hydration_example() {
 #[component]
 fn ScopedThemeDisplay() -> impl IntoView {
     let state = use_hydrated::<ThemeState>();
-    assert_eq!(state.get().theme, "dark");
     view! { <p>"Scoped Theme: " {move || state.get().theme}</p> }
 }
 

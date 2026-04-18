@@ -5,6 +5,7 @@ A lightweight library for **flicker-free interactive state hydration** in [Lepto
 ## Features
 
 - **Flicker-Free:** Initializes signals with server-provided state immediately during hydration.
+- **Browser-First:** Leverage state already in the browser (cookies, URL params) to render the first frame without waiting for API calls.
 - **Isomorphic:** Works naturally in both SSR and CSR contexts.
 - **Trait-Based:** Use the `Hydratable` trait to define state and refresh logic in one place.
 - **Global & Scoped:** Support for both global application state and scoped feature state.
@@ -37,13 +38,12 @@ pub struct ThemeState {
 
 impl Hydratable for ThemeState {
     fn initial() -> Self {
-        // This runs on both server and client to "seed" the state.
-        // Usually read from a cookie or URL parameter.
+        // Read from cookie/URL synchronously
         ThemeState { theme: "dark".into() }
     }
 
     async fn fetch() -> Result<Self, ServerFnError> {
-        // This runs ONLY on the client to refresh the state with full data.
+        // Use state already in the browser or refresh from API asynchronously
         Ok(ThemeState { theme: "light".into() })
     }
 }
@@ -59,7 +59,7 @@ Provides global state via context. Place it anywhere in your view tree.
 #[component]
 pub fn App() -> impl IntoView {
     view! {
-        // Initialize global theme state
+        // 1. Provide state anywhere in the tree
         <HydrateState<ThemeState> />
         
         <MainContent />
@@ -68,7 +68,7 @@ pub fn App() -> impl IntoView {
 
 #[component]
 fn MainContent() -> impl IntoView {
-    // Access the hydrated signal anywhere
+    // 2. Consume it anywhere in the tree
     let state = use_hydrated::<ThemeState>();
     view! {
         <p>"Theme: " {move || state.get().theme}</p>
