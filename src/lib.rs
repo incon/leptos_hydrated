@@ -733,7 +733,7 @@ where
 {
     use_context::<HydratedSignal<T>>().map(|s| s.0).expect(
         &format!(
-            "HydratedSignal<{}> not found. Did you wrap this part of the tree in <HydrateState<T> />, <HydrateContext<T> />, <HydrateStateWith<T> />, or <HydrateContextWith<T> />?",
+            "HydratedSignal<{}> not found. Did you wrap this part of the tree in <HydrateState<{0}> />, <HydrateContext<{0}> />, <HydrateStateWith<{0}> />, or <HydrateContextWith<{0}> />?",
             std::any::type_name::<T>()
         )
     )
@@ -758,7 +758,7 @@ where
 {
     use_context::<LocalResource<Option<T>>>().unwrap_or_else(|| {
         panic!(
-            "Hydrated LocalResource<{}> not found. Did you wrap this part of the tree in <HydrateState<T> />, <HydrateContext<T> />, <HydrateStateWith<T> />, or <HydrateContextWith<T> />?",
+            "Hydrated LocalResource<{}> not found. Did you wrap this part of the tree in <HydrateState<{0}> />, <HydrateContext<{0}> />, <HydrateStateWith<{0}> />, or <HydrateContextWith<{0}> />?",
             std::any::type_name::<T>()
         )
     })
