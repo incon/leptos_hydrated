@@ -252,3 +252,67 @@ main {
 	font-size: 1.1rem;
 	margin-bottom: 1.25rem;
 }
+/* Secret View Styles */
+.secret-card {
+	position: relative;
+	overflow: hidden;
+
+	.secret-data-box {
+		background: rgba(128, 128, 128, 0.05);
+		border: 1px solid rgba(0, 0, 0, 0.1);
+		padding: 1.25rem;
+		border-radius: 0.75rem;
+		margin-top: 1.5rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+
+		.label {
+			font-size: 0.8rem;
+			font-weight: 700;
+			text-transform: uppercase;
+			opacity: 0.6;
+			letter-spacing: 0.025em;
+		}
+
+		.value {
+			font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+			font-size: 0.9375rem;
+			word-break: break-all;
+			color: #4f46e5;
+		}
+	}
+
+	.theme-dark & .secret-data-box {
+		background: rgba(0, 0, 0, 0.2);
+		border-color: rgba(255, 255, 255, 0.1);
+
+		.value {
+			color: #818cf8;
+		}
+	}
+
+	.actions {
+		margin-top: 2rem;
+		display: flex;
+		gap: 1rem;
+	}
+}
+
+.card-badge {
+	position: absolute;
+	top: 1rem;
+	right: 1rem;
+	background: #10b981;
+	color: white;
+	padding: 0.25rem 0.625rem;
+	border-radius: 0.375rem;
+	font-size: 0.7rem;
+	font-weight: 800;
+	letter-spacing: 0.05em;
+	z-index: 10;
+}
+
+.card {
+	position: relative;
+}

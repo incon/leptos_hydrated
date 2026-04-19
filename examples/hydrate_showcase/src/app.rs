@@ -12,8 +12,8 @@ impl Hydratable for TabState {
     fn initial() -> Self {
         read_tab_state()
     }
-    async fn fetch() -> Result<Self, ServerFnError> {
-        fetch_tab_state().await
+    async fn fetch() -> Option<Result<Self, ServerFnError>> {
+        Some(fetch_tab_state().await)
     }
 }
 
@@ -24,8 +24,8 @@ impl Hydratable for ReferralState {
     fn initial() -> Self {
         read_referral_state()
     }
-    async fn fetch() -> Result<Self, ServerFnError> {
-        fetch_referral_state().await
+    async fn fetch() -> Option<Result<Self, ServerFnError>> {
+        Some(fetch_referral_state().await)
     }
 }
 
@@ -40,8 +40,20 @@ impl Hydratable for ProfileState {
     fn initial() -> Self {
         read_profile_state()
     }
-    async fn fetch() -> Result<Self, ServerFnError> {
-        fetch_profile_state().await
+    async fn fetch() -> Option<Result<Self, ServerFnError>> {
+        Some(fetch_profile_state().await)
+    }
+}
+
+#[derive(Clone, Default, Serialize, Deserialize, Debug, PartialEq)]
+pub struct SecureUserData {
+    pub balance: i32,
+    pub tier: String,
+}
+
+impl Hydratable for SecureUserData {
+    fn initial() -> Self {
+        read_secure_user_data()
     }
 }
 
@@ -193,6 +205,36 @@ fn read_profile_state() -> ProfileState {
     }
 }
 
+fn read_secure_user_data() -> SecureUserData {
+    #[cfg(feature = "ssr")]
+    {
+        use http::request::Parts;
+        let mut balance = 0;
+        let mut tier = "Guest".to_string();
+        if let Some(parts) = use_context::<Parts>() {
+            if let Some(cookie) = parts.headers.get("cookie").and_then(|c| c.to_str().ok()) {
+                if let Some(token) = cookie
+                    .split("; ")
+                    .find(|s| s.starts_with("secret_token="))
+                    .and_then(|s| s.strip_prefix("secret_token="))
+                {
+                    // Simulating a DB lookup using the secret token.
+                    // The client will see the user data but never the token.
+                    if token == "HYDRATED_SECRET_TOKEN" {
+                        balance = 5000;
+                        tier = "Platinum".to_string();
+                    }
+                }
+            }
+        }
+        SecureUserData { balance, tier }
+    }
+    #[cfg(not(feature = "ssr"))]
+    {
+        SecureUserData::default()
+    }
+}
+
 // --- Granular Server Functions ---
 
 #[server]
@@ -285,6 +327,32 @@ pub async fn update_profile(name: String, role: String) -> Result<UserProfile, S
     Ok(profile)
 }
 
+#[server]
+pub async fn login_secure() -> Result<(), ServerFnError> {
+    use leptos_axum::ResponseOptions;
+    if let Some(response_options) = use_context::<ResponseOptions>() {
+        response_options.insert_header(
+            http::header::SET_COOKIE,
+            http::HeaderValue::from_str("secret_token=HYDRATED_SECRET_TOKEN; path=/; HttpOnly; SameSite=Lax")
+                .unwrap(),
+        );
+    }
+    Ok(())
+}
+
+#[server]
+pub async fn logout_secure() -> Result<(), ServerFnError> {
+    use leptos_axum::ResponseOptions;
+    if let Some(response_options) = use_context::<ResponseOptions>() {
+        response_options.insert_header(
+            http::header::SET_COOKIE,
+            http::HeaderValue::from_str("secret_token=; path=/; HttpOnly; SameSite=Lax; Max-Age=0")
+                .unwrap(),
+        );
+    }
+    Ok(())
+}
+
 #[component]
 fn PromoBanner() -> impl IntoView {
     let state = use_hydrated::<ReferralState>();
@@ -355,21 +423,25 @@ pub fn App() -> impl IntoView {
         <Stylesheet id="leptos" href="/pkg/hydrate_showcase.css" />
         <Title text="Hydrate Showcase" />
 
-        <HydrateContext<ProfileState>>
-            <Router>
-                <HydrateContext<TabState>>
-                    <HydrateContext<ReferralState>>
-                        <SyncHydratedState />
-                        <ThemeWrapper>
-                            <PromoBanner />
-                            <Routes fallback=|| "Page not found.".into_view()>
-                                <Route path=StaticSegment("") view=HomePage />
-                            </Routes>
-                        </ThemeWrapper>
-                    </HydrateContext<ReferralState>>
-                </HydrateContext<TabState>>
-            </Router>
-        </HydrateContext<ProfileState>>
+        <div id="app-root">
+            <HydrateContext<ProfileState>>
+                <HydrateContext<SecureUserData>>
+                    <Router>
+                        <HydrateContext<TabState>>
+                            <HydrateContext<ReferralState>>
+                                <SyncHydratedState />
+                                <ThemeWrapper>
+                                    <PromoBanner />
+                                    <Routes fallback=|| "Page not found.".into_view()>
+                                        <Route path=StaticSegment("") view=HomePage />
+                                    </Routes>
+                                </ThemeWrapper>
+                            </HydrateContext<ReferralState>>
+                        </HydrateContext<TabState>>
+                    </Router>
+                </HydrateContext<SecureUserData>>
+            </HydrateContext<ProfileState>>
+        </div>
     }
 }
 
@@ -440,6 +512,7 @@ fn HomePage() -> impl IntoView {
         #[cfg(not(feature = "ssr"))]
         let _ = window().location().reload();
     };
+    let toggle_login = Callback::new(toggle_login);
 
     let toggle_ref = move |_| {
         if referral_state.get_untracked().0.is_some() {
@@ -457,7 +530,7 @@ fn HomePage() -> impl IntoView {
                     "Switch to "
                     {move || if profile_state.get().theme == "dark" { "Light" } else { "Dark" }}
                 </button>
-                <button class="btn btn-primary" on:click=toggle_login>
+                <button class="btn btn-primary" on:click=move |ev| toggle_login.run(ev)>
                     {move || {
                         if profile_state.get().is_authenticated { "Log Out" } else { "Log In" }
                     }}
@@ -492,6 +565,14 @@ fn HomePage() -> impl IntoView {
                 }
             >
                 "Reactivity"
+            </A>
+            <A
+                href="?tab=httponly"
+                attr:class=move || {
+                    format!("tab-btn {}", if tab_state.get().0 == "httponly" { "active" } else { "" })
+                }
+            >
+                "HTTP-only"
             </A>
         </div>
 
@@ -538,47 +619,18 @@ fn HomePage() -> impl IntoView {
                     }
                 }
             >
-                <div class="card reactivity-card">
-                    <h2>"Reactive Form Updates"</h2>
-                    {move || {
-                        let s = profile_state.get();
-                        if s.is_authenticated {
-                            view! {
-                                <>
-                                    <p>
-                                        "Update your profile data using this form. The default values are pre-populated from the "
-                                        <strong>"HydrateContext"</strong> " state."
-                                    </p>
-                                    <UpdateProfileForm
-                                        action=update_profile_action
-                                        profile=s.profile
-                                    />
-                                    <p class="note">
-                                        "After submitting, the state will be updated reactively in the UI and synchronized with your session cookie."
-                                    </p>
-                                </>
-                            }
-                                .into_any()
-                        } else {
-                            view! {
-                                <div class="guest-state">
-                                    <p>"You must be logged in to edit your profile."</p>
-                                    <button class="btn btn-primary" on:click=toggle_login>
-                                        "Log In Now"
-                                    </button>
-                                </div>
-                            }
-                                .into_any()
-                        }
-                    }}
-                </div>
+                <ReactivityView
+                    profile_state=profile_state
+                    update_profile_action=update_profile_action
+                    toggle_login=toggle_login
+                />
             </div>
 
             <div
                 class="cookie-content"
                 style=move || {
                     if tab_state.get().0 == "cookie"
-                        || (tab_state.get().0 != "params" && tab_state.get().0 != "reactivity")
+                        || (tab_state.get().0 != "params" && tab_state.get().0 != "reactivity" && tab_state.get().0 != "httponly")
                     {
                         "display: contents"
                     } else {
@@ -596,6 +648,19 @@ fn HomePage() -> impl IntoView {
                         "Try logging in and then hard-refreshing (Cmd/Ctrl+R). You will notice zero flickering."
                     </p>
                 </div>
+            </div>
+
+            <div
+                class="httponly-content"
+                style=move || {
+                    if tab_state.get().0 == "httponly" {
+                        "display: contents"
+                    } else {
+                        "display: none"
+                    }
+                }
+            >
+                <SecureDataView />
             </div>
         </div>
     }
@@ -671,6 +736,132 @@ fn ProfileCard() -> impl IntoView {
                         }
                             .into_any()
                     }
+                }}
+            </div>
+        </div>
+    }
+}
+
+#[component]
+fn ReactivityView(
+    profile_state: RwSignal<ProfileState>,
+    update_profile_action: ServerAction<UpdateProfile>,
+    toggle_login: Callback<leptos::ev::MouseEvent>,
+) -> impl IntoView {
+    view! {
+        <div class="card reactivity-card">
+            <h2>"Reactive Form Updates"</h2>
+            {move || {
+                let s = profile_state.get();
+                if s.is_authenticated {
+                    view! {
+                        <>
+                            <p>
+                                "Update your profile data using this form. The default values are pre-populated from the "
+                                <strong>"HydrateContext"</strong> " state."
+                            </p>
+                            <UpdateProfileForm
+                                action=update_profile_action
+                                profile=s.profile
+                            />
+                            <p class="note">
+                                "After submitting, the state will be updated reactively in the UI and synchronized with your session cookie."
+                            </p>
+                        </>
+                    }
+                        .into_any()
+                } else {
+                    view! {
+                        <div class="guest-state">
+                            <p>"You must be logged in to edit your profile."</p>
+                            <button class="btn btn-primary" on:click=move |ev| toggle_login.run(ev)>
+                                "Log In Now"
+                            </button>
+                        </div>
+                    }
+                        .into_any()
+                }
+            }}
+        </div>
+    }
+}
+
+#[component]
+fn SecureDataView() -> impl IntoView {
+    let secure_state = use_hydrated::<SecureUserData>();
+    let login_action = ServerAction::<LoginSecure>::new();
+    let logout_action = ServerAction::<LogoutSecure>::new();
+
+    let on_login = move |_| {
+        login_action.dispatch(LoginSecure {});
+    };
+
+    let on_logout = move |_| {
+        logout_action.dispatch(LogoutSecure {});
+    };
+
+    // Reload the page after login/logout to see the HTTP-only cookie in action
+    Effect::new(move |_| {
+        if login_action.value().get().is_some() || logout_action.value().get().is_some() {
+            #[cfg(not(feature = "ssr"))]
+            let _ = window().location().reload();
+        }
+    });
+
+    view! {
+        <div class="card secret-card">
+            <h2>"Secure State Hydration"</h2>
+            <p>
+                "The server uses an " <strong>"HTTP-only cookie"</strong>
+                " to identify you, but it never sends the token to the client."
+            </p>
+            <p>
+                "Instead, it fetches your user data and " <strong>"hydrates only the result"</strong> "."
+                " The client sees the balance, but JavaScript cannot see the cookie."
+            </p>
+
+            <div class="secret-data-box">
+                <span class="label">"Hydrated Result (Safe):"</span>
+                <span class="value">
+                    {move || {
+                        let s = secure_state.get();
+                        if s.tier == "Guest" {
+                            "Balance: N/A (Guest)".to_string()
+                        } else {
+                            format!("Balance: ${} | Tier: {}", s.balance, s.tier)
+                        }
+                    }}
+                </span>
+            </div>
+
+            <div class="secret-data-box">
+                <span class="label">"JS-Visible Cookies (document.cookie):"</span>
+                <span class="value">
+                    {move || {
+                        #[cfg(not(feature = "ssr"))]
+                        {
+                            let c = get_cookie();
+                            if c.is_empty() { "None (Secret is Hidden)".to_string() } else { c }
+                        }
+                        #[cfg(feature = "ssr")]
+                        { "N/A (Server)".to_string() }
+                    }}
+                </span>
+            </div>
+
+            <div class="actions">
+                {move || if secure_state.get().tier == "Guest" {
+                    view! {
+                        <button class="btn btn-primary" on:click=on_login>
+                            "Authenticate (HTTP-only)"
+                        </button>
+                    }.into_any()
+                } else {
+                    view! {
+                        <button class="btn btn-secondary" on:click=on_logout>
+                            "Log Out"
+                        </button>
+                    }.into_any()
                 }}
             </div>
         </div>

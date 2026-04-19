@@ -30,6 +30,7 @@ web-sys = { version = "0.3.72", features = ["HtmlFormElement", "FormData", "Html
 hydrate = [
     "leptos/hydrate",
     "dep:console_error_panic_hook",
+    "leptos_hydrated/hydrate",
 ]
 
 ssr = [

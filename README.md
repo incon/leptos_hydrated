@@ -17,7 +17,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-leptos_hydrated = "0.5"
+leptos_hydrated = "0.6"
 ```
 
 ## Quick Start
@@ -44,10 +44,10 @@ impl Hydratable for ThemeState {
         ThemeState { theme: "dark".into() }
     }
 
-    async fn fetch() -> Result<Self, ServerFnError> {
-        // Re-read from the same client-side state (cookie, URL param, etc.).
-        // Should return the same value as initial() — no state change on hydration.
-        Ok(ThemeState { theme: "dark".into() })
+    fn fetch() -> impl Future<Output = Option<Result<Self, ServerFnError>>> + Send + 'static {
+        // Return None if you only want to use the injected value.
+        // Return Some(Result) if you want to refresh the state in the background.
+        async { None }
     }
 }
 ```
@@ -124,6 +124,12 @@ Standard Leptos `Resource`s are fantastic for data that lives on the server and 
 1.  **Render immediately** on the server using a synchronous value.
 2.  **Hydrate immediately** on the client with that same value (no flicker!).
 3.  **Refresh in the background** once the WASM is ready to get the latest data.
+
+### Secure Hydration (HTTP-only Cookies)
+
+When using sensitive data like authentication tokens in HTTP-only cookies, the client JavaScript cannot read the cookie to initialize state. `leptos_hydrated` solves this by allowing the server to read the cookie, fetch the corresponding user data, and inject *only the result* into the HTML.
+
+The client hydrates the user data synchronously, while the secret token remains hidden from JavaScript.
 
 ## Documentation
 
