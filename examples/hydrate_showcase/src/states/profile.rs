@@ -56,8 +56,8 @@ impl Hydratable for ProfileState {
     fn initial() -> Self {
         read_profile_state()
     }
-    async fn fetch() -> Option<Result<Self, ServerFnError>> {
-        Some(fetch_profile_state().await)
+    async fn fetch() -> Option<Self> {
+        fetch_profile_state().await.ok()
     }
 }
 

@@ -9,8 +9,8 @@ impl Hydratable for TabState {
     fn initial() -> Self {
         read_tab_state()
     }
-    async fn fetch() -> Option<Result<Self, ServerFnError>> {
-        Some(fetch_tab_state().await)
+    async fn fetch() -> Option<Self> {
+        fetch_tab_state().await.ok()
     }
 }
 

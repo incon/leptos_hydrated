@@ -9,8 +9,8 @@ impl Hydratable for ReferralState {
     fn initial() -> Self {
         read_referral_state()
     }
-    async fn fetch() -> Option<Result<Self, ServerFnError>> {
-        Some(fetch_referral_state().await)
+    async fn fetch() -> Option<Self> {
+        fetch_referral_state().await.ok()
     }
 }
 
