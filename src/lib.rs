@@ -71,18 +71,22 @@
 //! # use leptos::prelude::*;
 //! # use leptos_hydrated::*;
 //! # use serde::{Serialize, Deserialize};
-//! #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Debug)]
-//! pub struct ThemeState { pub theme: String }
+//! #[derive(Clone, Default, serde::Serialize, serde::Deserialize, PartialEq, Debug)]
+//! struct ThemeState { theme: String }
 //!
 //! impl Hydratable for ThemeState {
 //!     fn initial() -> Self {
-//!         // Reads the "theme" cookie or defaults to "light".
+//!         // Use isomorphic helpers to read from cookies/query params on both sides.
 //!         let theme = get_cookie("theme").unwrap_or_else(|| "dark".into());
 //!         ThemeState { theme }
 //!     }
+//!
 //!     fn fetch() -> impl std::future::Future<Output = Option<Self>> + Send + 'static {
 //!         // Re-read from the same client-side source after hydration.
-//!         async { Some(ThemeState { theme: "light".into() }) }
+//!         async {
+//!             let theme = get_cookie("theme").unwrap_or_else(|| "dark".into());
+//!             Some(ThemeState { theme })
+//!         }
 //!     }
 //! }
 //! ```
@@ -229,10 +233,10 @@ pub struct HydratedSignal<T: 'static>(pub RwSignal<T>);
 /// - `Some(Ok(v))` → signal is updated to `v`
 /// - `Some(Err(_))` → signal retains its current value
 ///
-/// Returns `(RwSignal<T>, LocalResource<Option<T>>)`.
+/// Returns `(RwSignal<T>, Resource<Option<T>>)`.
 pub fn use_hydrate_signal<T, Fut>(
     ssr_value: impl Fn() -> T + 'static,
-    fetcher: impl Fn() -> Fut + Send + Sync + 'static,
+    fetcher: impl Fn() -> Fut + Clone + Send + Sync + 'static,
 ) -> (RwSignal<T>, LocalResource<Option<T>>)
 where
     T: Clone + Serialize + DeserializeOwned + Default + Send + Sync + PartialEq + 'static,
@@ -240,18 +244,29 @@ where
 {
     let initial_val = ssr_value();
     let signal = RwSignal::new(initial_val);
+    let first_run = StoredValue::new(true);
 
     let resource = LocalResource::new(move || {
-        let f = fetcher();
+        let current_val = signal.get();
+        let is_first = first_run.get_value();
+        let fetcher = fetcher.clone();
+
         async move {
-            f.await
+            if is_first {
+                first_run.set_value(false);
+                let f = fetcher();
+                f.await
+            } else {
+                Some(current_val)
+            }
         }
     });
 
     #[cfg(not(feature = "ssr"))]
     {
+        let resource_cloned = resource.clone();
         leptos::task::spawn_local(async move {
-            if let Some(val) = resource.await {
+            if let Some(val) = resource_cloned.await {
                 signal.set(val);
             }
         });
@@ -443,7 +458,8 @@ pub fn set_header(name: &str, value: &str) {
         use std::str::FromStr;
 
         if let Some(res) = use_context::<ResponseOptions>() {
-            if let (Ok(name), Ok(val)) = (HeaderName::from_str(name), HeaderValue::from_str(value)) {
+            if let (Ok(name), Ok(val)) = (HeaderName::from_str(name), HeaderValue::from_str(value))
+            {
                 res.insert_header(name, val);
             }
         }
@@ -453,7 +469,6 @@ pub fn set_header(name: &str, value: &str) {
         let _ = (name, value);
     }
 }
-
 
 /// Reads a URL query parameter from the `Referer` header.
 ///
@@ -588,8 +603,11 @@ where
 /// # struct ThemeState { theme: String }
 /// view! {
 ///     <HydrateStateWith
-///         ssr_value=|| ThemeState { theme: "dark".into() }
-///         fetcher=|| async { Some(ThemeState { theme: "dark".into() }) }
+///         ssr_value=|| ThemeState { theme: get_cookie("theme").unwrap_or_else(|| "dark".into()) }
+///         fetcher=|| async {
+///             let theme = get_cookie("theme").unwrap_or_else(|| "dark".into());
+///             Some(ThemeState { theme })
+///         }
 ///     />
 /// };
 /// ```
@@ -597,7 +615,7 @@ where
 pub fn HydrateStateWith<T, Fut>(
     /// Client-side initial value. Also used on SSR when `server_value` is `None`.
     ssr_value: impl Fn() -> T + 'static,
-    fetcher: impl Fn() -> Fut + Send + Sync + 'static,
+    fetcher: impl Fn() -> Fut + Clone + Send + Sync + 'static,
     /// SSR-only override. When provided the value is injected and the client
     /// reads from the injection instead of calling `ssr_value`.
     #[prop(optional)]
@@ -650,8 +668,11 @@ where
 /// # #[component] fn ProfileInfo() -> impl IntoView { view! { "" } }
 /// view! {
 ///     <HydrateContextWith
-///         ssr_value=|| UserState { name: "Guest".into() }
-///         fetcher=|| async { Some(UserState { name: "Guest".into() }) }
+///         ssr_value=|| UserState { name: get_cookie("username").unwrap_or_else(|| "Guest".into()) }
+///         fetcher=|| async {
+///             let name = get_cookie("username").unwrap_or_else(|| "Guest".into());
+///             Some(UserState { name })
+///         }
 ///     >
 ///         <ProfileInfo />
 ///     </HydrateContextWith>
@@ -660,7 +681,7 @@ where
 #[component]
 pub fn HydrateContextWith<T, Fut>(
     ssr_value: impl Fn() -> T + 'static,
-    fetcher: impl Fn() -> Fut + Send + Sync + 'static,
+    fetcher: impl Fn() -> Fut + Clone + Send + Sync + 'static,
     children: Children,
     #[prop(optional)] server_value: Option<T>,
 ) -> impl IntoView
@@ -712,7 +733,7 @@ where
 {
     use_context::<HydratedSignal<T>>().map(|s| s.0).expect(
         &format!(
-            "HydratedSignal<{}> not found. Did you wrap this part of the tree in <HydrateState<{0}> />, <HydrateContext<{0}> />, <HydrateStateWith<{0}> />, or <HydrateContextWith<{0}> />?",
+            "HydratedSignal<{}> not found. Did you wrap this part of the tree in <HydrateState<T> />, <HydrateContext<T> />, <HydrateStateWith<T> />, or <HydrateContextWith<T> />?",
             std::any::type_name::<T>()
         )
     )
@@ -737,7 +758,7 @@ where
 {
     use_context::<LocalResource<Option<T>>>().unwrap_or_else(|| {
         panic!(
-            "Hydrated Resource<{}> not found. Did you wrap this part of the tree in <HydrateState<{0}> />, <HydrateContext<{0}> />, <HydrateStateWith<{0}> />, or <HydrateContextWith<{0}> />?",
+            "Hydrated LocalResource<{}> not found. Did you wrap this part of the tree in <HydrateState<T> />, <HydrateContext<T> />, <HydrateStateWith<T> />, or <HydrateContextWith<T> />?",
             std::any::type_name::<T>()
         )
     })

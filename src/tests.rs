@@ -19,13 +19,31 @@ fn init_test_env() {
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Debug)]
+pub struct DefaultState {
+    pub value: i32,
+}
+impl Hydratable for DefaultState {
+    fn initial() -> Self { Self::default() }
+}
+
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Debug)]
 pub struct ThemeState {
     pub theme: String,
 }
 
 impl Hydratable for ThemeState {
     fn initial() -> Self {
-        ThemeState { theme: "dark".into() }
+        // Use isomorphic helpers to read from cookies/query params on both sides.
+        let theme = get_cookie("theme").unwrap_or_else(|| "dark".into());
+        ThemeState { theme }
+    }
+
+    fn fetch() -> impl std::future::Future<Output = Option<Self>> + Send + 'static {
+        // Re-read from the same client-side source after hydration.
+        async {
+            let theme = get_cookie("theme").unwrap_or_else(|| "dark".into());
+            Some(ThemeState { theme })
+        }
     }
 }
 
@@ -107,6 +125,41 @@ async fn test_fetch_some_err_keeps_initial_value() {
         assert_eq!(signal.get(), 42);
     }).await;
 }
+#[cfg(not(feature = "ssr"))]
+#[tokio::test]
+async fn test_two_way_binding_sync_flow() {
+    init_test_env();
+    let local = tokio::task::LocalSet::new();
+    local.run_until(async {
+        let owner = Owner::new_root(None);
+        let (signal, resource) = owner.with(|| {
+            use_hydrate_signal(
+                || 1,
+                || async { 
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                    Some(2) 
+                },
+            )
+        });
+
+        // 1. Initial SSR state
+        assert_eq!(signal.get(), 1);
+        // LocalResource is always None on the server or initially on the client before task runs
+        assert!(resource.get().is_none());
+
+        // 2. Wait for hydration to finish
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert_eq!(signal.get(), 2);
+        assert_eq!(resource.get(), Some(Some(2)));
+
+        // 3. Simulated user update (2-way binding concept)
+        signal.set(3);
+        assert_eq!(signal.get(), 3);
+        // Wait for resource to re-evaluate (it tracks the signal now)
+        for _ in 0..10 { tokio::task::yield_now().await; }
+        assert_eq!(resource.get(), Some(Some(3)));
+    }).await;
+}
 
 // ---------------------------------------------------------------------------
 // SSR isolation
@@ -114,15 +167,16 @@ async fn test_fetch_some_err_keeps_initial_value() {
 
 #[cfg(feature = "ssr")]
 #[tokio::test]
-async fn test_ssr_resource_does_not_resolve_synchronously() {
+async fn test_ssr_resource_is_muted() {
     init_test_env();
     let owner = Owner::new_root(None);
     owner.with(|| {
         let (signal, resource) = use_hydrate_signal(
             || 42,
-            || async { Some(100) },
+            || async { panic!("Fetcher should not be called on SSR") },
         );
         assert_eq!(signal.get(), 42);
+        // LocalResource should not resolve on the server
         assert!(resource.get().is_none());
     });
 }
@@ -417,8 +471,14 @@ fn test_serialize_for_injection_internal() {
 
 #[tokio::test]
 async fn test_hydratable_default_fetch() {
-    let result = ThemeState::fetch().await;
+    let result = DefaultState::fetch().await;
     assert!(result.is_none());
+}
+
+#[tokio::test]
+async fn test_hydratable_custom_fetch() {
+    let result = ThemeState::fetch().await;
+    assert!(result.is_some());
 }
 
 // ---------------------------------------------------------------------------
@@ -435,7 +495,7 @@ fn test_use_hydrated_panics_without_context() {
 }
 
 #[test]
-#[should_panic(expected = "Hydrated Resource<i32> not found")]
+#[should_panic(expected = "Hydrated LocalResource<i32> not found")]
 fn test_use_hydrated_resource_panics_without_context() {
     let owner = Owner::new_root(None);
     owner.with(|| {

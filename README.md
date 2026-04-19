@@ -17,7 +17,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-leptos_hydrated = "0.6"
+leptos_hydrated = "0.7"
 ```
 
 ## Two Modes
@@ -51,7 +51,10 @@ impl Hydratable for ThemeState {
 
     fn fetch() -> impl std::future::Future<Output = Option<Self>> + Send + 'static {
         // Re-read from the same client-side source after hydration.
-        async { Some(ThemeState { theme: "light".into() }) }
+        async {
+            let theme = get_cookie("theme").unwrap_or_else(|| "dark".into());
+            Some(ThemeState { theme })
+        }
     }
 }
 ```
