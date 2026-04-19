@@ -48,9 +48,9 @@
 //!
 //! impl Hydratable for SessionState {
 //!     fn initial() -> Self {
-//!         // On SSR: read from HTTP-only session cookie in request headers.
-//!         // The value is injected into the HTML — the client never reads the cookie.
-//!         SessionState { user_id: None }
+//!         // Uses the isomorphic helper to read a cookie on both server and client.
+//!         let user_id = get_cookie("user_id").and_then(|id| id.parse().ok());
+//!         SessionState { user_id }
 //!     }
 //!     // fetch() defaults to None — injected server value is kept, no refresh.
 //! }
@@ -76,9 +76,9 @@
 //!
 //! impl Hydratable for ThemeState {
 //!     fn initial() -> Self {
-//!         // On SSR: read from request headers.
-//!         // On client: read from browser APIs (document.cookie, window.location).
-//!         ThemeState { theme: "light".into() }
+//!         // Reads the "theme" cookie or defaults to "light".
+//!         let theme = get_cookie("theme").unwrap_or_else(|| "light".into());
+//!         ThemeState { theme }
 //!     }
 //!     fn fetch() -> impl std::future::Future<Output = Option<Result<Self, ServerFnError>>> + Send + 'static {
 //!         // Re-read from the same client-side source after hydration.
@@ -106,6 +106,30 @@
 //!     }
 //! }
 //! # #[component] fn FeatureContent() -> impl IntoView { view! { "" } }
+//! ```
+//!
+//! ## Server-Side Setup
+//!
+//! For isomorphic helpers like [`get_cookie`] and [`set_cookie`] to work on the server,
+//! you **must** use `.leptos_routes_with_context` in your Axum server setup.
+//! This provides the necessary request and response context to the library.
+//!
+//! ```rust
+//! # #[cfg(feature = "ssr")]
+//! # async fn setup() {
+//! # use axum::Router;
+//! # use leptos::prelude::*;
+//! # use leptos_axum::*;
+//! # let (leptos_options, routes, shell) = (LeptosOptions::default(), generate_route_list(|| ""), || "");
+//! let app = Router::new()
+//!     .leptos_routes_with_context(
+//!         &leptos_options,
+//!         routes,
+//!         || {}, // Additional context providers
+//!         move || shell(),
+//!     )
+//!     .with_state(leptos_options);
+//! # }
 //! ```
 
 use leptos::prelude::*;
@@ -161,8 +185,10 @@ fn read_injected_state<T: DeserializeOwned>(_id: &str) -> Option<T> {
 // ---------------------------------------------------------------------------
 
 /// A trait for types that can be hydrated automatically.
-pub trait Hydratable: Clone + Serialize + DeserializeOwned + Default + Send + Sync + 'static {
-    /// Read from request details (cookies, URL params).
+pub trait Hydratable:
+    Clone + Serialize + DeserializeOwned + Default + Send + Sync + 'static
+{
+    /// Read from request details using isomorphic helpers like [`get_cookie`] or [`get_query_param`].
     ///
     /// - On SSR: read from HTTP request headers/URI. The result is serialised
     ///   into the HTML so the client never needs to re-compute it.
@@ -251,6 +277,221 @@ fn read_raw_injected_state(_id: &str) -> Option<String> {
 }
 
 // ---------------------------------------------------------------------------
+// Isomorphic Helpers
+// ---------------------------------------------------------------------------
+
+/// Reads a cookie by name on both server and client.
+///
+/// - **SSR:** Reads from `http::request::Parts` (requires server setup with `leptos_routes_with_context`).
+/// - **Client:** Reads from `document.cookie`.
+pub fn get_cookie(name: &str) -> Option<String> {
+    #[cfg(feature = "ssr")]
+    {
+        use http::header::COOKIE;
+        use http::request::Parts;
+        use leptos::prelude::use_context;
+
+        use_context::<Parts>().and_then(|parts| {
+            parts
+                .headers
+                .get(COOKIE)
+                .and_then(|h| h.to_str().ok())
+                .and_then(|cookies| {
+                    cookies.split("; ").find_map(|s| {
+                        let mut parts = s.splitn(2, '=');
+                        let k = parts.next()?.trim();
+                        let v = parts.next()?.trim();
+                        if k == name { Some(v.to_string()) } else { None }
+                    })
+                })
+        })
+    }
+    #[cfg(all(not(feature = "ssr"), feature = "hydrate"))]
+    {
+        let cookies = js_sys::Reflect::get(&document(), &wasm_bindgen::JsValue::from_str("cookie"))
+            .ok()
+            .and_then(|v| v.as_string())
+            .unwrap_or_default();
+
+        cookies.split("; ").find_map(|s: &str| {
+            let mut parts = s.splitn(2, '=');
+            let k = parts.next()?.trim();
+            let v = parts.next()?.trim();
+            if k == name { Some(v.to_string()) } else { None }
+        })
+    }
+    #[cfg(all(not(feature = "ssr"), not(feature = "hydrate")))]
+    {
+        let _ = name;
+        None
+    }
+}
+
+/// Reads a URL query parameter by name on both server and client.
+///
+/// - **SSR:** Reads from `http::request::Parts` (requires server setup with `leptos_routes_with_context`).
+/// - **Client:** Reads from `window.location.search`.
+pub fn get_query_param(name: &str) -> Option<String> {
+    #[cfg(feature = "ssr")]
+    {
+        use http::request::Parts;
+        use leptos::prelude::use_context;
+
+        use_context::<Parts>().and_then(|parts| {
+            parts.uri.query().and_then(|q| {
+                q.split('&').find_map(|s| {
+                    let mut parts = s.splitn(2, '=');
+                    let k = parts.next()?.trim();
+                    let v = parts.next()?.trim();
+                    if k == name { Some(v.to_string()) } else { None }
+                })
+            })
+        })
+    }
+    #[cfg(all(not(feature = "ssr"), feature = "hydrate"))]
+    {
+        window().location().search().ok().and_then(|search| {
+            if search.is_empty() {
+                return None;
+            }
+            let query = search.trim_start_matches('?');
+            query.split('&').find_map(|s: &str| {
+                let mut parts = s.splitn(2, '=');
+                let k = parts.next()?.trim();
+                let v = parts.next()?.trim();
+                if k == name { Some(v.to_string()) } else { None }
+            })
+        })
+    }
+    #[cfg(all(not(feature = "ssr"), not(feature = "hydrate")))]
+    {
+        let _ = name;
+        None
+    }
+}
+
+/// Sets a cookie on both server and client.
+///
+/// - **SSR:** Inserts a `SET-COOKIE` header into `leptos_axum::ResponseOptions` (requires server setup with `leptos_routes_with_context`).
+/// - **Client:** Updates `document.cookie`.
+///
+/// `options` should be a string like `; path=/; SameSite=Lax`.
+pub fn set_cookie(name: &str, value: &str, options: &str) {
+    #[cfg(feature = "ssr")]
+    {
+        use http::HeaderValue;
+        use http::header::SET_COOKIE;
+        use leptos::prelude::use_context;
+        use leptos_axum::ResponseOptions;
+
+        if let Some(res) = use_context::<ResponseOptions>() {
+            let cookie = format!("{}={}{}", name, value, options);
+            if let Ok(val) = HeaderValue::from_str(&cookie) {
+                res.insert_header(SET_COOKIE, val);
+            }
+        }
+    }
+    #[cfg(all(not(feature = "ssr"), feature = "hydrate"))]
+    {
+        let cookie = format!("{}={}{}", name, value, options);
+        let _ = js_sys::Reflect::set(
+            &document(),
+            &wasm_bindgen::JsValue::from_str("cookie"),
+            &wasm_bindgen::JsValue::from_str(&cookie),
+        );
+    }
+    #[cfg(all(not(feature = "ssr"), not(feature = "hydrate")))]
+    {
+        let _ = (name, value, options);
+    }
+}
+/// Reads an HTTP header by name on both server and client.
+///
+/// - **SSR:** Reads from `http::request::Parts` (requires server setup with `leptos_routes_with_context`).
+/// - **Client:** Returns `None` (headers are not generally accessible in the browser context).
+pub fn get_header(name: &str) -> Option<String> {
+    #[cfg(feature = "ssr")]
+    {
+        use http::request::Parts;
+        use leptos::prelude::use_context;
+
+        use_context::<Parts>().and_then(|parts| {
+            parts
+                .headers
+                .get(name)
+                .and_then(|h| h.to_str().ok())
+                .map(|s| s.to_string())
+        })
+    }
+    #[cfg(not(feature = "ssr"))]
+    {
+        let _ = name;
+        None
+    }
+}
+
+/// Sets an HTTP header on both server and client.
+///
+/// - **SSR:** Inserts a header into `leptos_axum::ResponseOptions` (requires server setup with `leptos_routes_with_context`).
+/// - **Client:** No-op (use specific browser APIs like `document.cookie` via [`set_cookie`]).
+pub fn set_header(name: &str, value: &str) {
+    #[cfg(feature = "ssr")]
+    {
+        use http::HeaderValue;
+        use http::header::HeaderName;
+        use leptos::prelude::use_context;
+        use leptos_axum::ResponseOptions;
+        use std::str::FromStr;
+
+        if let Some(res) = use_context::<ResponseOptions>() {
+            if let (Ok(name), Ok(val)) = (HeaderName::from_str(name), HeaderValue::from_str(value)) {
+                res.insert_header(name, val);
+            }
+        }
+    }
+    #[cfg(not(feature = "ssr"))]
+    {
+        let _ = (name, value);
+    }
+}
+
+
+/// Reads a URL query parameter from the `Referer` header.
+///
+/// Useful in server functions where the current request URI is the server function endpoint,
+/// but you need to know a query parameter from the page that made the request.
+pub fn get_referer_query_param(name: &str) -> Option<String> {
+    #[cfg(feature = "ssr")]
+    {
+        use http::header::REFERER;
+        use http::request::Parts;
+        use leptos::prelude::use_context;
+
+        use_context::<Parts>().and_then(|parts| {
+            parts
+                .headers
+                .get(REFERER)
+                .and_then(|h| h.to_str().ok())
+                .and_then(|referer| {
+                    // Extract query part after '?'
+                    let query = referer.split('?').nth(1)?;
+                    query.split('&').find_map(|s| {
+                        let mut p = s.splitn(2, '=');
+                        let k = p.next()?.trim();
+                        let v = p.next()?.trim();
+                        if k == name { Some(v.to_string()) } else { None }
+                    })
+                })
+        })
+    }
+    #[cfg(not(feature = "ssr"))]
+    {
+        let _ = name;
+        None
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Trait-based components (always inject)
 // ---------------------------------------------------------------------------
 
@@ -261,9 +502,7 @@ fn read_raw_injected_state(_id: &str) -> Option<String> {
 /// both SSR and client to keep the DOM structure identical for hydration.
 /// Use `use_hydrated::<T>()` in any descendant to access the signal.
 #[component]
-pub fn HydrateState<T>(
-    #[prop(optional)] marker: std::marker::PhantomData<T>,
-) -> impl IntoView
+pub fn HydrateState<T>(#[prop(optional)] marker: std::marker::PhantomData<T>) -> impl IntoView
 where
     T: Hydratable + PartialEq,
 {
@@ -347,7 +586,8 @@ pub fn HydrateStateWith<T, Fut>(
     fetcher: impl Fn() -> Fut + Send + Sync + 'static,
     /// SSR-only override. When provided the value is injected and the client
     /// reads from the injection instead of calling `ssr_value`.
-    #[prop(optional)] server_value: Option<T>,
+    #[prop(optional)]
+    server_value: Option<T>,
 ) -> impl IntoView
 where
     T: Clone + Serialize + DeserializeOwned + Default + Send + Sync + PartialEq + 'static,

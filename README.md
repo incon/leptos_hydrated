@@ -38,10 +38,9 @@ pub struct ThemeState {
 
 impl Hydratable for ThemeState {
     fn initial() -> Self {
-        // Read from request details (cookies, URL params).
-        // On SSR: read from HTTP request headers/URI.
-        // On client: read from browser APIs (document.cookie, window.location).
-        ThemeState { theme: "dark".into() }
+        // Use isomorphic helpers to read from cookies/query params on both sides.
+        let theme = get_cookie("theme").unwrap_or_else(|| "dark".into());
+        ThemeState { theme }
     }
 
     fn fetch() -> impl Future<Output = Option<Result<Self, ServerFnError>>> + Send + 'static {
@@ -114,6 +113,47 @@ view! {
         <ProfileInfo />
     </HydrateContextWith>
 }
+```
+
+### Isomorphic Helpers
+
+`leptos_hydrated` provides several helpers to read and write state consistently on both server and client, which is particularly useful inside `Hydratable::initial()`.
+
+- **`get_cookie(name)`**: Reads a cookie by name. 
+  - *SSR:* Reads from `http::request::Parts`.
+  - *Client:* Reads from `document.cookie`.
+- **`set_cookie(name, value, options)`**: Sets a cookie. 
+  - *SSR:* Uses `leptos_axum::ResponseOptions` to insert a `SET-COOKIE` header.
+  - *Client:* Updates `document.cookie`.
+- **`get_query_param(name)`**: Reads a URL query parameter. 
+  - *SSR:* Reads from the request URI.
+  - *Client:* Reads from `window.location.search`.
+- **`get_referer_query_param(name)`**: Reads a query parameter from the `Referer` header. 
+  - *Note:* Essential for server functions where the current request URI is the endpoint, but you need the original page's context.
+- **`get_header(name)`**: Reads an arbitrary HTTP header by name.
+  - *SSR:* Reads from `http::request::Parts`.
+  - *Client:* Returns `None`.
+- **`set_header(name, value)`**: Sets an arbitrary HTTP header.
+  - *SSR:* Inserts into `leptos_axum::ResponseOptions`.
+  - *Client:* No-op.
+
+## Server-Side Setup
+
+In order for the isomorphic helpers to access request data on the server, you **must** use `.leptos_routes_with_context` in your Axum server setup. This provides the `http::request::Parts` and `leptos_axum::ResponseOptions` to the Leptos context.
+
+```rust
+// src/main.rs (Server)
+let app = Router::new()
+    .leptos_routes_with_context(
+        &leptos_options,
+        routes,
+        || {}, // Provide additional context here if needed
+        {
+            let leptos_options = leptos_options.clone();
+            move || shell(leptos_options.clone())
+        },
+    )
+    .with_state(leptos_options);
 ```
 
 ## Why use this instead of a standard `Resource`?

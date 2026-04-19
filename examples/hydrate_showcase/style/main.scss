@@ -316,3 +316,70 @@ main {
 .card {
 	position: relative;
 }
+/* Secure Tab Styles */
+.httponly-card {
+	.secure-box {
+		background: rgba(128, 128, 128, 0.05);
+		border: 1px solid rgba(0, 0, 0, 0.1);
+		padding: 1.5rem;
+		border-radius: 1rem;
+		margin: 1.5rem 0;
+
+		.token-display {
+			display: flex;
+			flex-direction: column;
+			gap: 1rem;
+
+			.status-container {
+				display: flex;
+				align-items: center;
+				gap: 1rem;
+				margin-bottom: 0.5rem;
+			}
+
+			.label {
+				font-size: 0.875rem;
+				font-weight: 600;
+				opacity: 0.7;
+			}
+
+			.tier-badge {
+				background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+				color: white;
+				padding: 0.35rem 0.8rem;
+				border-radius: 9999px;
+				font-size: 0.8rem;
+				font-weight: 700;
+				letter-spacing: 0.025em;
+				box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);
+			}
+
+			.balance-display {
+				font-family: ui-monospace, SFMono-Regular, monospace;
+				font-size: 1.5rem;
+				font-weight: 800;
+				color: #059669;
+				display: block;
+			}
+		}
+	}
+
+	.theme-dark & .secure-box {
+		background: rgba(0, 0, 0, 0.2);
+		border-color: rgba(255, 255, 255, 0.1);
+
+		.balance-display {
+			color: #34d399;
+		}
+	}
+
+	.login-prompt {
+		text-align: center;
+		padding: 1rem;
+
+		p {
+			margin-bottom: 1.25rem;
+			opacity: 0.7;
+		}
+	}
+}
