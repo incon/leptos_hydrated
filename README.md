@@ -20,6 +20,12 @@ Add this to your `Cargo.toml`:
 leptos_hydrated = "0.6"
 ```
 
+## Two Modes
+| Mode | `fetch()` | Use when |
+|------|-----------|----------|
+| **Injection-only** | `None` (default) | Server value is the source of truth (HTTP-only cookies, session tokens) |
+| **Injection + refresh** | `Some(v)` | Client can also re-read the same state (JS-readable cookies, URL params) |
+
 ## Quick Start
 
 ### 1. Define your State with `Hydratable`
@@ -43,10 +49,9 @@ impl Hydratable for ThemeState {
         ThemeState { theme }
     }
 
-    fn fetch() -> impl Future<Output = Option<Result<Self, ServerFnError>>> + Send + 'static {
-        // Return None if you only want to use the injected value.
-        // Return Some(Result) if you want to refresh the state in the background.
-        async { None }
+    fn fetch() -> impl std::future::Future<Output = Option<Self>> + Send + 'static {
+        // Re-read from the same client-side source after hydration.
+        async { Some(ThemeState { theme: "light".into() }) }
     }
 }
 ```
@@ -102,13 +107,13 @@ view! {
     // Global
     <HydrateStateWith
         ssr_value=|| ThemeState { theme: "dark".into() }
-        fetcher=|| async { Ok(ThemeState { theme: "light".into() }) }
+        fetcher=|| async { Some(ThemeState { theme: "dark".into() }) }
     />
     
     // Scoped
     <HydrateContextWith
         ssr_value=|| ThemeState { theme: "dark".into() }
-        fetcher=|| async { Ok(ThemeState { theme: "light".into() }) }
+        fetcher=|| async { Some(ThemeState { theme: "dark".into() }) }
     >
         <ProfileInfo />
     </HydrateContextWith>
@@ -143,15 +148,12 @@ In order for the isomorphic helpers to access request data on the server, you **
 
 ```rust
 // src/main.rs (Server)
-let app = Router::new()
+let app: Router = Router::new()
     .leptos_routes_with_context(
         &leptos_options,
         routes,
-        || {}, // Provide additional context here if needed
-        {
-            let leptos_options = leptos_options.clone();
-            move || shell(leptos_options.clone())
-        },
+        || {}, // Additional context providers
+        move || shell(),
     )
     .with_state(leptos_options);
 ```

@@ -42,7 +42,7 @@ async fn test_signal_initialises_from_ssr_value() {
         owner.with(|| {
             let (signal, _) = use_hydrate_signal(
                 || 42,
-                || async { Some(Ok::<i32, ServerFnError>(100)) },
+                || async { Some(100) },
             );
             assert_eq!(signal.get(), 42);
         });
@@ -58,7 +58,7 @@ async fn test_fetch_none_keeps_initial_value() {
         owner.with(|| {
             let (signal, _) = use_hydrate_signal(
                 || 42,
-                || async { None::<Result<i32, ServerFnError>> },
+                || async { None::<i32> },
             );
             assert_eq!(signal.get(), 42);
         });
@@ -76,7 +76,7 @@ async fn test_fetch_some_ok_updates_signal() {
         let signal = owner.with(|| {
             let (signal, _) = use_hydrate_signal(
                 || 42,
-                || async { Some(Ok::<i32, ServerFnError>(100)) },
+                || async { Some(100) },
             );
             signal
         });
@@ -97,11 +97,7 @@ async fn test_fetch_some_err_keeps_initial_value() {
         let signal = owner.with(|| {
             let (signal, _) = use_hydrate_signal(
                 || 42,
-                || async {
-                    Some(Err::<i32, ServerFnError>(ServerFnError::MissingArg(
-                        "test".into(),
-                    )))
-                },
+                || async { None::<i32> },
             );
             signal
         });
@@ -124,7 +120,7 @@ async fn test_ssr_resource_does_not_resolve_synchronously() {
     owner.with(|| {
         let (signal, resource) = use_hydrate_signal(
             || 42,
-            || async { Some(Ok::<i32, ServerFnError>(100)) },
+            || async { Some(100) },
         );
         assert_eq!(signal.get(), 42);
         assert!(resource.get().is_none());
@@ -188,7 +184,7 @@ async fn test_hydrate_state_with_provides_signal_and_resource() {
             let _ = view! {
                 <HydrateStateWith
                     ssr_value=|| ThemeState { theme: "dark".into() }
-                    fetcher=|| async { None::<Result<ThemeState, ServerFnError>> }
+                    fetcher=|| async { None::<ThemeState> }
                 />
                 {move || {
                     let signal = use_hydrated::<ThemeState>();
@@ -211,7 +207,7 @@ async fn test_hydrate_context_with_provides_signal_and_resource() {
             let _ = view! {
                 <HydrateContextWith
                     ssr_value=|| ThemeState { theme: "dark".into() }
-                    fetcher=|| async { None::<Result<ThemeState, ServerFnError>> }
+                    fetcher=|| async { None::<ThemeState> }
                 >
                     {move || {
                         let signal = use_hydrated::<ThemeState>();
@@ -274,7 +270,7 @@ async fn test_try_use_hydrated_resource_returns_some_when_context_exists() {
             let _ = view! {
                 <HydrateContextWith
                     ssr_value=|| ThemeState { theme: "dark".into() }
-                    fetcher=|| async { None::<Result<ThemeState, ServerFnError>> }
+                    fetcher=|| async { None::<ThemeState> }
                 >
                     {move || {
                         assert!(try_use_hydrated_resource::<ThemeState>().is_some());
@@ -295,6 +291,137 @@ fn test_try_use_hydrated_resource_returns_none_when_no_context() {
 }
 
 // ---------------------------------------------------------------------------
+// Isomorphic Helpers
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn test_get_cookie_ssr() {
+    use http::Request;
+    use http::header::COOKIE;
+    
+    let (parts, _) = Request::builder()
+        .header(COOKIE, "test=value; other=foo")
+        .body(())
+        .unwrap()
+        .into_parts();
+        
+    let owner = Owner::new_root(None);
+    owner.with(|| {
+        provide_context(parts);
+        assert_eq!(get_cookie("test"), Some("value".into()));
+        assert_eq!(get_cookie("other"), Some("foo".into()));
+        assert_eq!(get_cookie("missing"), None);
+    });
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn test_get_query_param_ssr() {
+    use http::Request;
+    
+    let (parts, _) = Request::builder()
+        .uri("http://example.com/?foo=bar&baz=qux")
+        .body(())
+        .unwrap()
+        .into_parts();
+        
+    let owner = Owner::new_root(None);
+    owner.with(|| {
+        provide_context(parts);
+        assert_eq!(get_query_param("foo"), Some("bar".into()));
+        assert_eq!(get_query_param("baz"), Some("qux".into()));
+        assert_eq!(get_query_param("missing"), None);
+    });
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn test_get_header_ssr() {
+    use http::Request;
+    
+    let (parts, _) = Request::builder()
+        .header("X-Test", "value")
+        .body(())
+        .unwrap()
+        .into_parts();
+        
+    let owner = Owner::new_root(None);
+    owner.with(|| {
+        provide_context(parts);
+        assert_eq!(get_header("X-Test"), Some("value".into()));
+        assert_eq!(get_header("Missing"), None);
+    });
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn test_set_header_ssr() {
+    use leptos_axum::ResponseOptions;
+    
+    let owner = Owner::new_root(None);
+    owner.with(|| {
+        let res = ResponseOptions::default();
+        provide_context(res.clone());
+        
+        // These should not panic
+        set_header("X-Response", "isomorphic");
+        set_cookie("session", "abc", "; path=/");
+    });
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn test_get_referer_query_param_ssr() {
+    use http::Request;
+    use http::header::REFERER;
+    
+    let (parts, _) = Request::builder()
+        .header(REFERER, "http://site.com/page?ref=123")
+        .body(())
+        .unwrap()
+        .into_parts();
+        
+    let owner = Owner::new_root(None);
+    owner.with(|| {
+        provide_context(parts);
+        assert_eq!(get_referer_query_param("ref"), Some("123".into()));
+        assert_eq!(get_referer_query_param("missing"), None);
+    });
+}
+
+#[cfg(not(feature = "ssr"))]
+#[test]
+fn test_helpers_return_none_on_client() {
+    // On client (without actual browser globals mocked) these should return None
+    assert_eq!(get_cookie("any"), None);
+    assert_eq!(get_query_param("any"), None);
+    assert_eq!(get_header("any"), None);
+    assert_eq!(get_referer_query_param("any"), None);
+}
+
+// ---------------------------------------------------------------------------
+// Internal Mechanisms
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "ssr")]
+#[test]
+fn test_serialize_for_injection_internal() {
+    let state = ThemeState { theme: "dark".into() };
+    let json = serialize_for_injection(&state);
+    assert_eq!(json, r#"{"theme":"dark"}"#);
+    
+    let id = type_hydration_id::<ThemeState>();
+    assert!(id.contains("ThemeState"));
+}
+
+#[tokio::test]
+async fn test_hydratable_default_fetch() {
+    let result = ThemeState::fetch().await;
+    assert!(result.is_none());
+}
+
+// ---------------------------------------------------------------------------
 // Panic tests
 // ---------------------------------------------------------------------------
 
@@ -302,12 +429,16 @@ fn test_try_use_hydrated_resource_returns_none_when_no_context() {
 #[should_panic(expected = "HydratedSignal<i32> not found")]
 fn test_use_hydrated_panics_without_context() {
     let owner = Owner::new_root(None);
-    owner.with(|| { let _ = use_hydrated::<i32>(); });
+    owner.with(|| {
+        let _ = use_hydrated::<i32>();
+    });
 }
 
 #[test]
 #[should_panic(expected = "Hydrated Resource<i32> not found")]
 fn test_use_hydrated_resource_panics_without_context() {
     let owner = Owner::new_root(None);
-    owner.with(|| { let _ = use_hydrated_resource::<i32>(); });
+    owner.with(|| {
+        let _ = use_hydrated_resource::<i32>();
+    });
 }

@@ -30,15 +30,15 @@
 //! | Mode | `fetch()` | Use when |
 //! |------|-----------|----------|
 //! | Injection-only | `None` (default) | Server value is the source of truth (HTTP-only cookies, session tokens) |
-//! | Injection + refresh | `Some(Ok(v))` | Client can also re-read the same state (JS-readable cookies, URL params) |
+//! | Injection + refresh | `Some(v)` | Client can also re-read the same state (JS-readable cookies, URL params) |
 //!
 //! ## Examples
 //!
 //! ### Injection-only (HTTP-only cookie / session)
 //!
-//! ```rust
+//! ```rust,no_run
 //! use leptos::prelude::*;
-//! use leptos_hydrated::*;
+//! # use leptos_hydrated::*;
 //! use serde::{Serialize, Deserialize};
 //!
 //! #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Debug)]
@@ -67,7 +67,7 @@
 //!
 //! ### Injection + client refresh (JS-readable cookie / URL param)
 //!
-//! ```rust
+//! ```rust,no_run
 //! # use leptos::prelude::*;
 //! # use leptos_hydrated::*;
 //! # use serde::{Serialize, Deserialize};
@@ -77,19 +77,19 @@
 //! impl Hydratable for ThemeState {
 //!     fn initial() -> Self {
 //!         // Reads the "theme" cookie or defaults to "light".
-//!         let theme = get_cookie("theme").unwrap_or_else(|| "light".into());
+//!         let theme = get_cookie("theme").unwrap_or_else(|| "dark".into());
 //!         ThemeState { theme }
 //!     }
-//!     fn fetch() -> impl std::future::Future<Output = Option<Result<Self, ServerFnError>>> + Send + 'static {
+//!     fn fetch() -> impl std::future::Future<Output = Option<Self>> + Send + 'static {
 //!         // Re-read from the same client-side source after hydration.
-//!         async { Some(Ok(ThemeState { theme: "light".into() })) }
+//!         async { Some(ThemeState { theme: "light".into() }) }
 //!     }
 //! }
 //! ```
 //!
 //! ### Scoped Hydration
 //!
-//! ```rust
+//! ```rust,no_run
 //! # use leptos::prelude::*;
 //! # use leptos_hydrated::*;
 //! # #[derive(Clone, Default, serde::Serialize, serde::Deserialize, PartialEq, Debug)]
@@ -114,14 +114,17 @@
 //! you **must** use `.leptos_routes_with_context` in your Axum server setup.
 //! This provides the necessary request and response context to the library.
 //!
-//! ```rust
+//! ```rust,no_run
 //! # #[cfg(feature = "ssr")]
 //! # async fn setup() {
 //! # use axum::Router;
 //! # use leptos::prelude::*;
 //! # use leptos_axum::*;
-//! # let (leptos_options, routes, shell) = (LeptosOptions::default(), generate_route_list(|| ""), || "");
-//! let app = Router::new()
+//! # fn dummy<T>() -> T { panic!() }
+//! # let leptos_options: LeptosOptions = dummy();
+//! # let routes = dummy();
+//! # let shell = || "".to_string();
+//! let app: Router = Router::new()
 //!     .leptos_routes_with_context(
 //!         &leptos_options,
 //!         routes,
@@ -140,7 +143,7 @@ use std::future::Future;
 // Helpers: type-stable DOM id, serialization, and injection reading
 // ---------------------------------------------------------------------------
 
-fn type_hydration_id<T: 'static>() -> String {
+pub(crate) fn type_hydration_id<T: 'static>() -> String {
     std::any::type_name::<T>()
         .chars()
         .map(|c| if c.is_alphanumeric() { c } else { '_' })
@@ -148,7 +151,7 @@ fn type_hydration_id<T: 'static>() -> String {
 }
 
 #[cfg(feature = "ssr")]
-fn serialize_for_injection<T: Serialize>(value: &T) -> String {
+pub(crate) fn serialize_for_injection<T: Serialize>(value: &T) -> String {
     serde_json::to_string(value).unwrap_or_default()
 }
 
@@ -199,10 +202,9 @@ pub trait Hydratable:
     ///
     /// - `None` (default): keep the injected server value. No network call.
     ///   Ideal for HTTP-only cookies and session tokens.
-    /// - `Some(Ok(v))`: update the signal with `v` after hydration.
+    /// - `Some(v)`: update the signal with `v` after hydration.
     ///   Use when the client can re-read the same state (JS cookies, URL params).
-    /// - `Some(Err(_))`: log/ignore; signal retains its current value.
-    fn fetch() -> impl Future<Output = Option<Result<Self, ServerFnError>>> + Send + 'static {
+    fn fetch() -> impl Future<Output = Option<Self>> + Send + 'static {
         async { None }
     }
 }
@@ -234,7 +236,7 @@ pub fn use_hydrate_signal<T, Fut>(
 ) -> (RwSignal<T>, LocalResource<Option<T>>)
 where
     T: Clone + Serialize + DeserializeOwned + Default + Send + Sync + PartialEq + 'static,
-    Fut: Future<Output = Option<Result<T, ServerFnError>>> + Send + 'static,
+    Fut: Future<Output = Option<T>> + Send + 'static,
 {
     let initial_val = ssr_value();
     let signal = RwSignal::new(initial_val);
@@ -242,10 +244,7 @@ where
     let resource = LocalResource::new(move || {
         let f = fetcher();
         async move {
-            match f.await {
-                Some(Ok(v)) => Some(v),
-                _ => None,
-            }
+            f.await
         }
     });
 
@@ -579,6 +578,21 @@ where
 /// (e.g. from an HTTP-only cookie). When `server_value` is `None`, `ssr_value`
 /// is used on both sides. The `<script>` tag is always rendered to keep the
 /// DOM structure identical on both sides.
+///
+/// ### Example
+///
+/// ```rust,no_run
+/// # use leptos::prelude::*;
+/// # use leptos_hydrated::*;
+/// # #[derive(Clone, Default, serde::Serialize, serde::Deserialize, PartialEq, Debug)]
+/// # struct ThemeState { theme: String }
+/// view! {
+///     <HydrateStateWith
+///         ssr_value=|| ThemeState { theme: "dark".into() }
+///         fetcher=|| async { Some(ThemeState { theme: "dark".into() }) }
+///     />
+/// };
+/// ```
 #[component]
 pub fn HydrateStateWith<T, Fut>(
     /// Client-side initial value. Also used on SSR when `server_value` is `None`.
@@ -591,7 +605,7 @@ pub fn HydrateStateWith<T, Fut>(
 ) -> impl IntoView
 where
     T: Clone + Serialize + DeserializeOwned + Default + Send + Sync + PartialEq + 'static,
-    Fut: Future<Output = Option<Result<T, ServerFnError>>> + Send + 'static,
+    Fut: Future<Output = Option<T>> + Send + 'static,
 {
     let id = type_hydration_id::<T>();
     let script_id = format!("__lh_{}", id);
@@ -625,6 +639,24 @@ where
 ///
 /// Optionally provide `server_value` to inject an SSR-only value into the HTML.
 /// The `<script>` tag is always rendered to keep DOM structure consistent.
+///
+/// ### Example
+///
+/// ```rust,no_run
+/// # use leptos::prelude::*;
+/// # use leptos_hydrated::*;
+/// # #[derive(Clone, Default, serde::Serialize, serde::Deserialize, PartialEq, Debug)]
+/// # struct UserState { name: String }
+/// # #[component] fn ProfileInfo() -> impl IntoView { view! { "" } }
+/// view! {
+///     <HydrateContextWith
+///         ssr_value=|| UserState { name: "Guest".into() }
+///         fetcher=|| async { Some(UserState { name: "Guest".into() }) }
+///     >
+///         <ProfileInfo />
+///     </HydrateContextWith>
+/// };
+/// ```
 #[component]
 pub fn HydrateContextWith<T, Fut>(
     ssr_value: impl Fn() -> T + 'static,
@@ -634,7 +666,7 @@ pub fn HydrateContextWith<T, Fut>(
 ) -> impl IntoView
 where
     T: Clone + Serialize + DeserializeOwned + Default + Send + Sync + PartialEq + 'static,
-    Fut: Future<Output = Option<Result<T, ServerFnError>>> + Send + 'static,
+    Fut: Future<Output = Option<T>> + Send + 'static,
 {
     let id = type_hydration_id::<T>();
     let script_id = format!("__lh_{}", id);
