@@ -1,8 +1,8 @@
-use leptos::prelude::*;
-use leptos_router::hooks::query_signal;
-use leptos_hydrated::use_hydrated;
-use crate::states::ReferralState;
 use crate::components::TabPanel;
+use crate::states::ReferralState;
+use leptos::prelude::*;
+use leptos_hydrated::use_hydrated;
+use leptos_router::hooks::query_signal;
 
 #[component]
 pub fn ParamsTab(tab: &'static str) -> impl IntoView {
@@ -26,7 +26,7 @@ pub fn ParamsTab(tab: &'static str) -> impl IntoView {
                 </p>
                 <p>
                     "When you click the button below, then hard refresh (Cmd/Ctrl+R), the page will reload with a new parameter. Because of "
-                    <strong>"leptos_hydrate"</strong>
+                    <strong>"leptos_hydrated"</strong>
                     ", the server knows exactly what to render immediately."
                 </p>
                 <button class="btn btn-primary" on:click=toggle_ref>
