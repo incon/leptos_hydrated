@@ -4,16 +4,38 @@ use crate::states::*;
 use leptos::either::Either;
 use leptos::prelude::*;
 use leptos_hydrated::*;
-use leptos_meta::{provide_meta_context, MetaTags, Stylesheet, Title};
+use leptos_meta::{MetaTags, Stylesheet, Title, provide_meta_context};
 use leptos_router::{
-    components::{Route, Router, Routes, A},
+    ParamSegment, StaticSegment,
+    components::{A, Route, Router, Routes},
     hooks::use_params,
     params::Params,
-    ParamSegment, StaticSegment,
 };
+
+pub fn get_version() -> String {
+    use std::sync::OnceLock;
+    static VERSION: OnceLock<String> = OnceLock::new();
+
+    VERSION
+        .get_or_init(|| {
+            if cfg!(debug_assertions) {
+                format!(
+                    "dev-{}",
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs()
+                )
+            } else {
+                env!("CARGO_PKG_VERSION").to_string()
+            }
+        })
+        .clone()
+}
 
 pub fn shell(options: LeptosOptions) -> impl IntoView {
     provide_meta_context();
+    let version = get_version();
 
     view! {
         <!DOCTYPE html>
@@ -23,7 +45,7 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
                 <meta name="viewport" content="width=device-width, initial-scale=1"/>
                 <meta name="theme-color" content="#ffffff" />
                 <Title text="Offline Todo"/>
-                <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+                <link rel="icon" type="image/svg+xml" href=format!("/icon.svg?v={version}") />
                 <link rel="manifest" href="/manifest.json" />
                 <HydrationScripts options=options.clone() />
                 <MetaTags/>
@@ -31,12 +53,33 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
                 <script>
                     "if ('serviceWorker' in navigator) {
                         navigator.serviceWorker.register('/sw.js');
-                    }"
+                    }
+                    
+                    // WebSocket interceptor to enable path-based hot reload through Caddy (single port setup)
+                    (function() {
+                        var OriginalWebSocket = window.WebSocket;
+                        window.WebSocket = function(url, protocols) {
+                            console.log('[Leptos Proxy] WebSocket request to:', url);
+                            try {
+                                var urlObj = new URL(url, window.location.origin);
+                                // Identify the Leptos reload websocket (usually hits the root path on the reload port)
+                                if (urlObj.pathname === '/' || urlObj.pathname === '' || url.includes('live_reload')) {
+                                    var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                                    url = protocol + '//' + window.location.host + '/live_reload';
+                                    console.log('[Leptos Proxy] Rewriting to:', url);
+                                }
+                            } catch (e) {
+                                console.error('[Leptos Proxy] Error:', e);
+                            }
+                            return new OriginalWebSocket(url, protocols);
+                        };
+                        window.WebSocket.prototype = OriginalWebSocket.prototype;
+                    })();"
                 </script>
-                <script>
-                    "window.__INITIAL_ONLINE__ = navigator.onLine;"
-                </script>
-                <OnlineAutoReload options=options.clone() />
+                {
+                    #[cfg(all(debug_assertions, feature = "ssr"))]
+                    view! { <AutoReload options=options /> }
+                }
             </head>
             <body>
                 <App/>
@@ -54,23 +97,20 @@ pub struct OnlineContext {
 pub fn App() -> impl IntoView {
     provide_meta_context();
 
-    let initial_online = {
-        #[cfg(not(feature = "hydrate"))]
-        { true }
-        #[cfg(feature = "hydrate")]
-        {
-            js_sys::Reflect::get(&web_sys::window().unwrap(), &::wasm_bindgen::JsValue::from_str("__INITIAL_ONLINE__"))
-                .and_then(|v| v.as_bool().ok_or(::wasm_bindgen::JsValue::NULL))
-                .unwrap_or_else(|_| web_sys::window().unwrap().navigator().on_line())
-        }
-    };
-    
-    let online = RwSignal::new(initial_online);
+    let online = RwSignal::new(true);
     provide_context(OnlineContext { online });
 
     #[cfg(not(feature = "ssr"))]
     {
         use leptos::ev;
+
+        // Ensure we check native state on boot if it happens to be accurate
+        Effect::new(move |_| {
+            let is_online = web_sys::window().unwrap().navigator().on_line();
+            if !is_online {
+                online.set(false);
+            }
+        });
 
         std::mem::forget(window_event_listener(ev::online, move |_| {
             leptos::logging::log!("App: browser went online");
@@ -294,68 +334,5 @@ fn TodoDetailsPage() -> impl IntoView {
                 })
             }}
         </div>
-    }
-}
-
-#[component]
-pub fn OnlineAutoReload(options: LeptosOptions) -> impl IntoView {
-    #[cfg(debug_assertions)]
-    {
-        view! {
-            <script>
-                "var OriginalWebSocket = window.WebSocket;
-                window._dummyWsList = [];
-                window._wsFailures = 0;
-                
-                window.WebSocket = function(url, protocols) {
-                    if (url.includes('live_reload')) {
-                        // Immediately block on the second attempt to prevent ANY loop
-                        if (!navigator.onLine || window._wsFailures > 0) {
-                            if (window._wsFailures === 1) {
-                                console.error('Live-reload connection blocked. While using DevTools offline networks it may provide the wrong initial state.');
-                                window._wsFailures++; // Increment so we only print this once
-                            }
-                            var dummy = {
-                                send: function() {},
-                                close: function() {},
-                                addEventListener: function() {},
-                                removeEventListener: function() {},
-                                readyState: 0
-                            };
-                            Object.defineProperty(dummy, 'onclose', { set: function(cb) { this._onclose = cb; } });
-                            Object.defineProperty(dummy, 'onmessage', { set: function(cb) { this._onmessage = cb; } });
-                            Object.defineProperty(dummy, 'onerror', { set: function(cb) { this._onerror = cb; } });
-                            Object.defineProperty(dummy, 'onopen', { set: function(cb) { this._onopen = cb; } });
-                            
-                            window._dummyWsList.push(dummy);
-                            return dummy;
-                        }
-
-                        var ws = new OriginalWebSocket(url, protocols);
-                        ws.addEventListener('close', function() {
-                            window._wsFailures++;
-                        });
-                        ws.addEventListener('open', function() {
-                            window._wsFailures = 0;
-                        });
-                        return ws;
-                    }
-                    return new OriginalWebSocket(url, protocols);
-                };
-                window.WebSocket.prototype = OriginalWebSocket.prototype;
-                window.addEventListener('online', function() {
-                    window._wsFailures = 0;
-                    window._dummyWsList.forEach(function(dummy) {
-                        if (dummy._onclose) dummy._onclose();
-                    });
-                    window._dummyWsList = [];
-                });"
-            </script>
-            <AutoReload options=options />
-        }
-    }
-    #[cfg(not(debug_assertions))]
-    {
-        view! { <AutoReload options=options /> }
     }
 }

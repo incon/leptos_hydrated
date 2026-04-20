@@ -1,5 +1,8 @@
 
 #[cfg(feature = "ssr")]
+use offline_pwa::app::get_version;
+
+#[cfg(feature = "ssr")]
 #[tokio::main]
 async fn main() {
     use axum::Router;
@@ -44,13 +47,7 @@ async fn sw_handler(
 
     let content = SW_CONTENT.get_or_init(|| {
         let mut sw = include_str!("../public/sw.js").to_string();
-        let version = if cfg!(debug_assertions) {
-            // In dev, use a timestamp to ensure the SW updates on every server restart
-            format!("dev-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs())
-        } else {
-            // In prod, use the Cargo version
-            env!("CARGO_PKG_VERSION").to_string()
-        };
+        let version = get_version();
         sw = sw.replace("{{VERSION}}", &version);
         sw.replace("{{OUTPUT_NAME}}", &options.output_name)
     });
@@ -68,11 +65,7 @@ async fn manifest_handler() -> impl axum::response::IntoResponse {
 
     let content = MANIFEST_CONTENT.get_or_init(|| {
         let manifest = include_str!("../public/manifest.json").to_string();
-        let version = if cfg!(debug_assertions) {
-            format!("dev-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs())
-        } else {
-            env!("CARGO_PKG_VERSION").to_string()
-        };
+        let version = get_version();
         manifest.replace("{{VERSION}}", &version)
     });
 
