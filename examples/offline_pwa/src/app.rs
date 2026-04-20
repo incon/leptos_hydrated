@@ -4,12 +4,12 @@ use crate::states::*;
 use leptos::either::Either;
 use leptos::prelude::*;
 use leptos_hydrated::*;
-use leptos_meta::{MetaTags, Stylesheet, Title, provide_meta_context};
+use leptos_meta::{provide_meta_context, MetaTags, Stylesheet, Title};
 use leptos_router::{
-    ParamSegment, StaticSegment,
-    components::{A, Route, Router, Routes},
+    components::{Route, Router, Routes, A},
     hooks::use_params,
     params::Params,
+    ParamSegment, StaticSegment,
 };
 
 pub fn get_version() -> String {
@@ -54,7 +54,7 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
                     "if ('serviceWorker' in navigator) {
                         navigator.serviceWorker.register('/sw.js');
                     }
-                    
+
                     // WebSocket interceptor to enable path-based hot reload through Caddy (single port setup)
                     (function() {
                         var OriginalWebSocket = window.WebSocket;
@@ -64,7 +64,7 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
                                 var urlObj = new URL(url, window.location.origin);
                                 var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
                                 var targetUrl = protocol + '//' + window.location.host + '/live_reload';
-                                
+
                                 // Identify the Leptos reload websocket (hits port 3001 or root path)
                                 if (urlObj.port == '3001' || urlObj.pathname === '/' || urlObj.pathname === '' || url.includes('live_reload')) {
                                     isReload = true;
@@ -75,7 +75,7 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
                             } catch (e) {}
 
                             var ws = new OriginalWebSocket(url, protocols);
-                            
+
                             if (isReload) {
                                 ws.addEventListener('close', function() {
                                     // DevTools Workaround: Force offline event to sync the banner if connection fails
@@ -148,26 +148,42 @@ fn OnlineProvider(children: Children) -> impl IntoView {
 #[component]
 fn OnlineManager(children: Children) -> impl IntoView {
     let online_state = use_hydrated::<OnlineState>();
-    provide_context(OnlineContext { online: online_state });
+    provide_context(OnlineContext {
+        online: online_state,
+    });
 
     #[cfg(not(feature = "ssr"))]
     {
         use leptos::ev;
-        
+
         // Initial client-side sync: ensure the state reflects actual navigator status
         let current_online = web_sys::window().unwrap().navigator().on_line();
         if current_online != online_state.get_untracked().online {
-            online_state.set(OnlineState { online: current_online });
-            set_cookie("online_status", if current_online { "true" } else { "false" }, "; path=/; max-age=31536000; SameSite=Lax");
+            online_state.set(OnlineState {
+                online: current_online,
+            });
+            set_cookie(
+                "online_status",
+                if current_online { "true" } else { "false" },
+                "; path=/; max-age=31536000; SameSite=Lax",
+            );
         }
 
         std::mem::forget(window_event_listener(ev::online, move |_| {
             online_state.set(OnlineState { online: true });
-            set_cookie("online_status", "true", "; path=/; max-age=31536000; SameSite=Lax");
+            set_cookie(
+                "online_status",
+                "true",
+                "; path=/; max-age=31536000; SameSite=Lax",
+            );
         }));
         std::mem::forget(window_event_listener(ev::offline, move |_| {
             online_state.set(OnlineState { online: false });
-            set_cookie("online_status", "false", "; path=/; max-age=31536000; SameSite=Lax");
+            set_cookie(
+                "online_status",
+                "false",
+                "; path=/; max-age=31536000; SameSite=Lax",
+            );
         }));
     }
 
