@@ -1,12 +1,4 @@
 todo.local {
-    # Proxy hot reload websocket
-    handle /live_reload {
-        uri strip_prefix /live_reload
-        reverse_proxy 127.0.0.1:3001
-    }
-
-    # Proxy everything else to the app
-    handle {
-        reverse_proxy 127.0.0.1:3000
-    }
+    reverse_proxy /live_reload* 127.0.0.1:3001
+    reverse_proxy 127.0.0.1:3000
 }

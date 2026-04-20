@@ -49,15 +49,23 @@ body {
   text-align: center;
   border-bottom: 1px solid hsl(var(--border));
   
-  &.online {
+  .online-text, .offline-text {
+    display: none;
+  }
+
+  &.online, html[data-online="true"] & {
     background-color: hsl(142.1 76.2% 36.3% / 0.1);
     color: hsl(142.1 76.2% 36.3%);
   }
   
-  &.offline {
+  &.offline, html[data-online="false"] & {
     background-color: hsl(var(--destructive) / 0.1);
     color: hsl(var(--destructive));
   }
+
+  // Use the HTML attribute to control text visibility to avoid sync issues between SSR classes and client attributes
+  html[data-online="true"] & .online-text { display: inline; }
+  html[data-online="false"] & .offline-text { display: inline; }
 }
 
 .app-container {

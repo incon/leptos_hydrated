@@ -44,6 +44,17 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
                 <meta charset="utf-8"/>
                 <meta name="viewport" content="width=device-width, initial-scale=1"/>
                 <meta name="theme-color" content="#ffffff" />
+                <script>
+                    "// Set initial online state immediately to avoid flickering
+                    document.documentElement.dataset.online = navigator.onLine;"
+                </script>
+                <style>
+                    ".status-banner .online-text, .status-banner .offline-text { display: none; }
+                    html[data-online='true'] .status-banner .online-text { display: inline; }
+                    html[data-online='false'] .status-banner .offline-text { display: inline; }
+                    html[data-online='true'] .status-banner { background-color: rgba(22, 163, 74, .1); color: #16a34a; }
+                    html[data-online='false'] .status-banner { background-color: rgba(239, 68, 68, .1); color: #ef4444; }"
+                </style>
                 <Title text="Offline Todo"/>
                 <link rel="icon" type="image/svg+xml" href=format!("/icon.svg?v={version}") />
                 <link rel="manifest" href="/manifest.json" />
@@ -59,19 +70,34 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
                     (function() {
                         var OriginalWebSocket = window.WebSocket;
                         window.WebSocket = function(url, protocols) {
-                            console.log('[Leptos Proxy] WebSocket request to:', url);
+                            var isReload = false;
                             try {
                                 var urlObj = new URL(url, window.location.origin);
-                                // Identify the Leptos reload websocket (usually hits the root path on the reload port)
-                                if (urlObj.pathname === '/' || urlObj.pathname === '' || url.includes('live_reload')) {
-                                    var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-                                    url = protocol + '//' + window.location.host + '/live_reload';
-                                    console.log('[Leptos Proxy] Rewriting to:', url);
+                                var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                                var targetUrl = protocol + '//' + window.location.host + '/live_reload';
+                                
+                                // Identify the Leptos reload websocket (hits port 3001 or root path)
+                                if (urlObj.port == '3001' || urlObj.pathname === '/' || urlObj.pathname === '' || url.includes('live_reload')) {
+                                    isReload = true;
+                                    if (url !== targetUrl) {
+                                        url = targetUrl;
+                                    }
                                 }
-                            } catch (e) {
-                                console.error('[Leptos Proxy] Error:', e);
+                            } catch (e) {}
+
+                            var ws = new OriginalWebSocket(url, protocols);
+                            
+                            if (isReload) {
+                                ws.addEventListener('close', function() {
+                                    // DevTools Workaround: Force offline event to sync the banner if connection fails
+                                    window.dispatchEvent(new Event('offline'));
+                                });
+                                ws.addEventListener('open', function() {
+                                    // Sync back to online when successful
+                                    window.dispatchEvent(new Event('online'));
+                                });
                             }
-                            return new OriginalWebSocket(url, protocols);
+                            return ws;
                         };
                         window.WebSocket.prototype = OriginalWebSocket.prototype;
                     })();"
@@ -97,27 +123,35 @@ pub struct OnlineContext {
 pub fn App() -> impl IntoView {
     provide_meta_context();
 
-    let online = RwSignal::new(true);
+    let online = RwSignal::new({
+        if cfg!(feature = "ssr") {
+            true
+        } else {
+            web_sys::window().unwrap().navigator().on_line()
+        }
+    });
     provide_context(OnlineContext { online });
 
     #[cfg(not(feature = "ssr"))]
     {
         use leptos::ev;
 
-        // Ensure we check native state on boot if it happens to be accurate
+        // Sync the document attribute when state changes
         Effect::new(move |_| {
-            let is_online = web_sys::window().unwrap().navigator().on_line();
-            if !is_online {
-                online.set(false);
-            }
+            let is_online = online.get();
+            let _ = web_sys::window()
+                .unwrap()
+                .document()
+                .unwrap()
+                .document_element()
+                .unwrap()
+                .set_attribute("data-online", if is_online { "true" } else { "false" });
         });
 
         std::mem::forget(window_event_listener(ev::online, move |_| {
-            leptos::logging::log!("App: browser went online");
             online.set(true);
         }));
         std::mem::forget(window_event_listener(ev::offline, move |_| {
-            leptos::logging::log!("App: browser went offline");
             online.set(false);
         }));
     }
@@ -151,11 +185,8 @@ fn OnlineStatus() -> impl IntoView {
 
     view! {
         <div id="online-status" class=move || format!("status-banner {}", if online.get() { "online" } else { "offline" })>
-            {move || if online.get() {
-                "● Online"
-            } else {
-                "○ Offline - Using local storage"
-            }}
+            <span class="online-text">"● Online"</span>
+            <span class="offline-text">"○ Offline - Using local storage"</span>
         </div>
     }
 }
