@@ -33,6 +33,9 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
                         navigator.serviceWorker.register('/sw.js');
                     }"
                 </script>
+                <script>
+                    "window.__INITIAL_ONLINE__ = navigator.onLine;"
+                </script>
                 <OnlineAutoReload options=options.clone() />
             </head>
             <body>
@@ -51,18 +54,23 @@ pub struct OnlineContext {
 pub fn App() -> impl IntoView {
     provide_meta_context();
 
-    let online = RwSignal::new(true);
+    let initial_online = {
+        #[cfg(not(feature = "hydrate"))]
+        { true }
+        #[cfg(feature = "hydrate")]
+        {
+            js_sys::Reflect::get(&web_sys::window().unwrap(), &::wasm_bindgen::JsValue::from_str("__INITIAL_ONLINE__"))
+                .and_then(|v| v.as_bool().ok_or(::wasm_bindgen::JsValue::NULL))
+                .unwrap_or_else(|_| web_sys::window().unwrap().navigator().on_line())
+        }
+    };
+    
+    let online = RwSignal::new(initial_online);
     provide_context(OnlineContext { online });
 
     #[cfg(not(feature = "ssr"))]
     {
         use leptos::ev;
-        // Use an effect for the initial check to ensure it runs on the client after hydration
-        Effect::new(move |_| {
-            let is_online = web_sys::window().unwrap().navigator().on_line();
-            leptos::logging::log!("App: client check, onLine = {}", is_online);
-            online.set(is_online);
-        });
 
         std::mem::forget(window_event_listener(ev::online, move |_| {
             leptos::logging::log!("App: browser went online");
@@ -297,23 +305,48 @@ pub fn OnlineAutoReload(options: LeptosOptions) -> impl IntoView {
             <script>
                 "var OriginalWebSocket = window.WebSocket;
                 window._dummyWsList = [];
+                window._wsFailures = 0;
+                
                 window.WebSocket = function(url, protocols) {
-                    if (url.includes('live_reload') && !navigator.onLine) {
-                        var dummy = {
-                            send: function() {},
-                            close: function() {},
-                            addEventListener: function() {},
-                            removeEventListener: function() {},
-                            readyState: 0
-                        };
-                        window._dummyWsList.push(dummy);
-                        return dummy;
+                    if (url.includes('live_reload')) {
+                        // Immediately block on the second attempt to prevent ANY loop
+                        if (!navigator.onLine || window._wsFailures > 0) {
+                            if (window._wsFailures === 1) {
+                                console.error('Live-reload connection blocked. While using DevTools offline networks it may provide the wrong initial state.');
+                                window._wsFailures++; // Increment so we only print this once
+                            }
+                            var dummy = {
+                                send: function() {},
+                                close: function() {},
+                                addEventListener: function() {},
+                                removeEventListener: function() {},
+                                readyState: 0
+                            };
+                            Object.defineProperty(dummy, 'onclose', { set: function(cb) { this._onclose = cb; } });
+                            Object.defineProperty(dummy, 'onmessage', { set: function(cb) { this._onmessage = cb; } });
+                            Object.defineProperty(dummy, 'onerror', { set: function(cb) { this._onerror = cb; } });
+                            Object.defineProperty(dummy, 'onopen', { set: function(cb) { this._onopen = cb; } });
+                            
+                            window._dummyWsList.push(dummy);
+                            return dummy;
+                        }
+
+                        var ws = new OriginalWebSocket(url, protocols);
+                        ws.addEventListener('close', function() {
+                            window._wsFailures++;
+                        });
+                        ws.addEventListener('open', function() {
+                            window._wsFailures = 0;
+                        });
+                        return ws;
                     }
                     return new OriginalWebSocket(url, protocols);
                 };
+                window.WebSocket.prototype = OriginalWebSocket.prototype;
                 window.addEventListener('online', function() {
+                    window._wsFailures = 0;
                     window._dummyWsList.forEach(function(dummy) {
-                        if (dummy.onclose) dummy.onclose();
+                        if (dummy._onclose) dummy._onclose();
                     });
                     window._dummyWsList = [];
                 });"
