@@ -56,9 +56,11 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
                     }"
                 </script>
                 {
-                    let is_online = OnlineState::initial().online;
                     #[cfg(all(debug_assertions, feature = "ssr"))]
-                    is_online.then(|| view! { <AutoReload options=options /> })
+                    {
+                        let is_online = OnlineState::initial().online;
+                        is_online.then(|| view! { <AutoReload options=options /> })
+                    }
                 }
             </head>
             <body>
