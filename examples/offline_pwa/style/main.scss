@@ -49,23 +49,19 @@ body {
   text-align: center;
   border-bottom: 1px solid hsl(var(--border));
   
-  .online-text, .offline-text {
-    display: none;
-  }
+  .online-text, .offline-text { display: none; }
+  &.online .online-text { display: inline; }
+  &.offline .offline-text { display: inline; }
 
-  &.online, html[data-online="true"] & {
-    background-color: hsl(142.1 76.2% 36.3% / 0.1);
-    color: hsl(142.1 76.2% 36.3%);
+  &.online {
+    background-color: hsla(142, 76%, 36%, 0.1);
+    color: #16a34a;
   }
   
-  &.offline, html[data-online="false"] & {
-    background-color: hsl(var(--destructive) / 0.1);
-    color: hsl(var(--destructive));
+  &.offline {
+    background-color: hsla(0, 84%, 60%, 0.1);
+    color: #ef4444;
   }
-
-  // Use the HTML attribute to control text visibility to avoid sync issues between SSR classes and client attributes
-  html[data-online="true"] & .online-text { display: inline; }
-  html[data-online="false"] & .offline-text { display: inline; }
 }
 
 .app-container {

@@ -44,17 +44,6 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
                 <meta charset="utf-8"/>
                 <meta name="viewport" content="width=device-width, initial-scale=1"/>
                 <meta name="theme-color" content="#ffffff" />
-                <script>
-                    "// Set initial online state immediately to avoid flickering
-                    document.documentElement.dataset.online = navigator.onLine;"
-                </script>
-                <style>
-                    ".status-banner .online-text, .status-banner .offline-text { display: none; }
-                    html[data-online='true'] .status-banner .online-text { display: inline; }
-                    html[data-online='false'] .status-banner .offline-text { display: inline; }
-                    html[data-online='true'] .status-banner { background-color: rgba(22, 163, 74, .1); color: #16a34a; }
-                    html[data-online='false'] .status-banner { background-color: rgba(239, 68, 68, .1); color: #ef4444; }"
-                </style>
                 <Title text="Offline Todo"/>
                 <link rel="icon" type="image/svg+xml" href=format!("/icon.svg?v={version}") />
                 <link rel="manifest" href="/manifest.json" />
@@ -116,75 +105,83 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
 
 #[derive(Copy, Clone)]
 pub struct OnlineContext {
-    pub online: RwSignal<bool>,
+    pub online: RwSignal<OnlineState>,
 }
 
 #[component]
 pub fn App() -> impl IntoView {
     provide_meta_context();
 
-    let online = RwSignal::new({
-        if cfg!(feature = "ssr") {
-            true
-        } else {
-            web_sys::window().unwrap().navigator().on_line()
-        }
-    });
-    provide_context(OnlineContext { online });
+    view! {
+        <OnlineProvider>
+            <div id="app-root">
+                <OnlineStatus />
+                <div class="app-container">
+                    <HydrateContext<TodoState>>
+                        <TodoPersistence />
+                        <Router>
+                            <main>
+                                <Routes fallback=|| "Page not found.".into_view()>
+                                    <Route path=StaticSegment("") view=TodoPage />
+                                    <Route path=(StaticSegment("todo"), ParamSegment("id")) view=TodoDetailsPage />
+                                </Routes>
+                            </main>
+                        </Router>
+                    </HydrateContext<TodoState>>
+                </div>
+            </div>
+        </OnlineProvider>
+    }
+}
+
+#[component]
+fn OnlineProvider(children: Children) -> impl IntoView {
+    view! {
+        <HydrateContext<OnlineState>>
+            <OnlineManager>
+                {children()}
+            </OnlineManager>
+        </HydrateContext<OnlineState>>
+    }
+}
+
+#[component]
+fn OnlineManager(children: Children) -> impl IntoView {
+    let online_state = use_hydrated::<OnlineState>();
+    provide_context(OnlineContext { online: online_state });
 
     #[cfg(not(feature = "ssr"))]
     {
         use leptos::ev;
-
-        // Sync the document attribute when state changes
-        Effect::new(move |_| {
-            let is_online = online.get();
-            let _ = web_sys::window()
-                .unwrap()
-                .document()
-                .unwrap()
-                .document_element()
-                .unwrap()
-                .set_attribute("data-online", if is_online { "true" } else { "false" });
-        });
+        
+        // Initial client-side sync: ensure the state reflects actual navigator status
+        let current_online = web_sys::window().unwrap().navigator().on_line();
+        if current_online != online_state.get_untracked().online {
+            online_state.set(OnlineState { online: current_online });
+            set_cookie("online_status", if current_online { "true" } else { "false" }, "; path=/; max-age=31536000; SameSite=Lax");
+        }
 
         std::mem::forget(window_event_listener(ev::online, move |_| {
-            online.set(true);
+            online_state.set(OnlineState { online: true });
+            set_cookie("online_status", "true", "; path=/; max-age=31536000; SameSite=Lax");
         }));
         std::mem::forget(window_event_listener(ev::offline, move |_| {
-            online.set(false);
+            online_state.set(OnlineState { online: false });
+            set_cookie("online_status", "false", "; path=/; max-age=31536000; SameSite=Lax");
         }));
     }
 
-    view! {
-        <Title text="Offline Todo"/>
-        <div id="app-root">
-            <OnlineStatus />
-            <div class="app-container">
-                <HydrateContext<TodoState>>
-                    <TodoPersistence />
-                    <Router>
-                        <main>
-                            <Routes fallback=|| "Page not found.".into_view()>
-                                <Route path=StaticSegment("") view=TodoPage />
-                                <Route path=(StaticSegment("todo"), ParamSegment("id")) view=TodoDetailsPage />
-                            </Routes>
-                        </main>
-                    </Router>
-                </HydrateContext<TodoState>>
-            </div>
-        </div>
-    }
+    children()
 }
 
 #[component]
 fn OnlineStatus() -> impl IntoView {
     let online = use_context::<OnlineContext>()
         .map(|ctx| ctx.online)
-        .unwrap_or_else(|| RwSignal::new(true));
+        .unwrap_or_else(|| RwSignal::new(OnlineState::default()));
 
     view! {
-        <div id="online-status" class=move || format!("status-banner {}", if online.get() { "online" } else { "offline" })>
+        <div id="online-status" class=move || format!("status-banner {}", if online.get().online { "online" } else { "offline" })>
             <span class="online-text">"● Online"</span>
             <span class="offline-text">"○ Offline - Using local storage"</span>
         </div>

@@ -10,7 +10,6 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', (event) => {
-  // Force the waiting service worker to become the active service worker.
   self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
@@ -37,17 +36,17 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   event.respondWith(
     (async () => {
-      // 1. Try network first for development or to get the latest version
+      // 1. Try network first
       try {
-        const networkResponse = await fetch(event.request);
-        if (networkResponse && networkResponse.status === 200) {
-          return networkResponse;
+        const response = await fetch(event.request);
+        if (response && response.ok) {
+          return response;
         }
       } catch (e) {
-        // Network failure, move to cache
+        // Network failure
       }
 
-      // 2. Try to match the request in the cache
+      // 2. Asset/Navigation fallback
       const cachedResponse = await caches.match(event.request);
       if (cachedResponse) {
         return cachedResponse;
@@ -61,12 +60,7 @@ self.addEventListener('fetch', (event) => {
         }
       }
 
-      // 4. Final fallback for other assets
-      return new Response('Offline and not in cache', {
-        status: 503,
-        statusText: 'Service Unavailable',
-        headers: { 'Content-Type': 'text/plain' }
-      });
+      return new Response('Offline and not cached', { status: 503 });
     })()
   );
 });

@@ -1,6 +1,6 @@
+use crate::db;
 use leptos_hydrated::*;
 use serde::{Deserialize, Serialize};
-use crate::db;
 
 #[derive(Clone, Default, Serialize, Deserialize, Debug, PartialEq)]
 pub struct TodoItem {
@@ -41,5 +41,22 @@ impl Hydratable for TodoState {
                 }
             }
         }
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+pub struct OnlineState {
+    pub online: bool,
+}
+
+impl Default for OnlineState {
+    fn default() -> Self {
+        Self { online: true }
+    }
+}
+
+impl Hydratable for OnlineState {
+    fn initial() -> Self {
+        Self { online: get_cookie("online_status").is_none_or(|v| v == "true") }
     }
 }
