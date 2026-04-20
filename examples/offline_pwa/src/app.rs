@@ -4,12 +4,12 @@ use crate::states::*;
 use leptos::either::Either;
 use leptos::prelude::*;
 use leptos_hydrated::*;
-use leptos_meta::{provide_meta_context, MetaTags, Stylesheet, Title};
+use leptos_meta::{MetaTags, Stylesheet, Title, provide_meta_context};
 use leptos_router::{
-    components::{Route, Router, Routes, A},
+    ParamSegment, StaticSegment,
+    components::{A, Route, Router, Routes},
     hooks::use_params,
     params::Params,
-    ParamSegment, StaticSegment,
 };
 
 pub fn get_version() -> String {
@@ -53,47 +53,12 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
                 <script>
                     "if ('serviceWorker' in navigator) {
                         navigator.serviceWorker.register('/sw.js');
-                    }
-
-                    // WebSocket interceptor to enable path-based hot reload through Caddy (single port setup)
-                    (function() {
-                        var OriginalWebSocket = window.WebSocket;
-                        window.WebSocket = function(url, protocols) {
-                            var isReload = false;
-                            try {
-                                var urlObj = new URL(url, window.location.origin);
-                                var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-                                var targetUrl = protocol + '//' + window.location.host + '/live_reload';
-
-                                // Identify the Leptos reload websocket (hits port 3001 or root path)
-                                if (urlObj.port == '3001' || urlObj.pathname === '/' || urlObj.pathname === '' || url.includes('live_reload')) {
-                                    isReload = true;
-                                    if (url !== targetUrl) {
-                                        url = targetUrl;
-                                    }
-                                }
-                            } catch (e) {}
-
-                            var ws = new OriginalWebSocket(url, protocols);
-
-                            if (isReload) {
-                                ws.addEventListener('close', function() {
-                                    // DevTools Workaround: Force offline event to sync the banner if connection fails
-                                    window.dispatchEvent(new Event('offline'));
-                                });
-                                ws.addEventListener('open', function() {
-                                    // Sync back to online when successful
-                                    window.dispatchEvent(new Event('online'));
-                                });
-                            }
-                            return ws;
-                        };
-                        window.WebSocket.prototype = OriginalWebSocket.prototype;
-                    })();"
+                    }"
                 </script>
                 {
+                    let is_online = OnlineState::initial().online;
                     #[cfg(all(debug_assertions, feature = "ssr"))]
-                    view! { <AutoReload options=options /> }
+                    is_online.then(|| view! { <AutoReload options=options /> })
                 }
             </head>
             <body>
