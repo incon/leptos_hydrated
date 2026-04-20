@@ -1,0 +1,16 @@
+{
+  "name": "Offline Todo",
+  "short_name": "Todo",
+  "description": "An offline-first Todo app using leptos_hydrated",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
+  "icons": [
+    {
+      "src": "/icon.svg?v={{VERSION}}",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
