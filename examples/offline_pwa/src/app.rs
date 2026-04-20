@@ -4,12 +4,12 @@ use crate::states::*;
 use leptos::either::Either;
 use leptos::prelude::*;
 use leptos_hydrated::*;
-use leptos_meta::{MetaTags, Stylesheet, Title, provide_meta_context};
+use leptos_meta::{provide_meta_context, MetaTags, Stylesheet, Title};
 use leptos_router::{
-    ParamSegment, StaticSegment,
-    components::{A, Route, Router, Routes},
+    components::{Route, Router, Routes, A},
     hooks::use_params,
     params::Params,
+    ParamSegment, StaticSegment,
 };
 
 pub fn get_version() -> String {
