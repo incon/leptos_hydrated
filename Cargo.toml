@@ -30,3 +30,17 @@ http             = { version = "1.0", optional = true }
 tokio        = { version = "1.51", features = ["full"] }
 any_spawner  = { version = "0.3.0", features = ["tokio"] }
 axum         = "0.8"
+
+[workspace]
+members = [
+    "examples/hydrate_showcase",
+    "examples/offline_pwa",
+]
+
+# Defines a size-optimized profile for the WASM bundle in release mode
+[profile.wasm-release]
+inherits = "release"
+opt-level = 'z'
+lto = true
+codegen-units = 1
+panic = "abort"
