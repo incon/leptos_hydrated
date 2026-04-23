@@ -21,7 +21,7 @@ pub fn read_tab_state() -> TabState {
 #[server]
 pub async fn fetch_tab_state() -> Result<TabState, ServerFnError> {
     let mut state = read_tab_state();
-    if let Some(tab) = get_referer_query_param("tab") {
+    if let Some(tab) = get_query_param("tab") {
         state.0 = tab;
     }
     Ok(state)

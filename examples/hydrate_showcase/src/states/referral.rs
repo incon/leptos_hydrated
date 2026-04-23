@@ -21,7 +21,7 @@ pub fn read_referral_state() -> ReferralState {
 #[server]
 pub async fn fetch_referral_state() -> Result<ReferralState, ServerFnError> {
     let mut state = read_referral_state();
-    if let Some(r) = get_referer_query_param("ref") {
+    if let Some(r) = get_query_param("ref") {
         state.0 = Some(r);
     }
     Ok(state)

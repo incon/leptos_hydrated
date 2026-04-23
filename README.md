@@ -133,11 +133,8 @@ view! {
 - **`set_cookie(name, value, options)`**: Sets a cookie. 
   - *SSR:* Uses `leptos_axum::ResponseOptions` to insert a `SET-COOKIE` header.
   - *Client:* Updates `document.cookie`.
-- **`get_query_param(name)`**: Reads a URL query parameter. 
-  - *SSR:* Reads from the request URI.
+- **`get_query_param(name)`**: Reads a URL query parameter. On SSR, it tries the current request URI first, then falls back to the `Referer` header (useful in server functions).
   - *Client:* Reads from `window.location.search`.
-- **`get_referer_query_param(name)`**: Reads a query parameter from the `Referer` header. 
-  - *Note:* Essential for server functions where the current request URI is the endpoint, but you need the original page's context.
 - **`get_header(name)`**: Reads an arbitrary HTTP header by name.
   - *SSR:* Reads from `http::request::Parts`.
   - *Client:* Returns `None`.

@@ -336,21 +336,48 @@ pub fn get_cookie(name: &str) -> Option<String> {
 ///
 /// - **SSR:** Reads from `http::request::Parts` (requires server setup with `leptos_routes_with_context`).
 /// - **Client:** Reads from `window.location.search`.
+/// Reads a URL query parameter by name on both server and client.
+///
+/// - **SSR:** Tries reading from the current request URI first. If not found, falls back
+///   to the `Referer` header. This is useful for server functions where the query parameters
+///   from the page that made the request are needed.
+/// - **Client:** Reads from `window.location.search`.
 pub fn get_query_param(name: &str) -> Option<String> {
     #[cfg(feature = "ssr")]
     {
+        use http::header::REFERER;
         use http::request::Parts;
         use leptos::prelude::use_context;
 
         use_context::<Parts>().and_then(|parts| {
-            parts.uri.query().and_then(|q| {
+            // 1. Try current URI query
+            let direct = parts.uri.query().and_then(|q| {
                 q.split('&').find_map(|s| {
                     let mut parts = s.splitn(2, '=');
                     let k = parts.next()?.trim();
                     let v = parts.next()?.trim();
                     if k == name { Some(v.to_string()) } else { None }
                 })
-            })
+            });
+
+            if direct.is_some() {
+                return direct;
+            }
+
+            // 2. Fall back to Referer query
+            parts
+                .headers
+                .get(REFERER)
+                .and_then(|h| h.to_str().ok())
+                .and_then(|referer| {
+                    let query = referer.split('?').nth(1)?;
+                    query.split('&').find_map(|s| {
+                        let mut p = s.splitn(2, '=');
+                        let k = p.next()?.trim();
+                        let v = p.next()?.trim();
+                        if k == name { Some(v.to_string()) } else { None }
+                    })
+                })
         })
     }
     #[cfg(all(not(feature = "ssr"), feature = "hydrate"))]
@@ -408,44 +435,6 @@ pub fn set_cookie(name: &str, value: &str, options: &str) {
     #[cfg(all(not(feature = "ssr"), not(feature = "hydrate")))]
     {
         let _ = (name, value, options);
-    }
-}
-
-/// Reads a URL query parameter by name from the `Referer` header on both server and client.
-///
-/// Useful in server functions where the current request URI is the server function endpoint,
-/// but you need to know a query parameter from the page that made the request.
-///
-/// - **SSR:** Reads from `http::header::REFERER`.
-/// - **Client:** Returns `None`.
-pub fn get_referer_query_param(name: &str) -> Option<String> {
-    #[cfg(feature = "ssr")]
-    {
-        use http::header::REFERER;
-        use http::request::Parts;
-        use leptos::prelude::use_context;
-
-        use_context::<Parts>().and_then(|parts| {
-            parts
-                .headers
-                .get(REFERER)
-                .and_then(|h| h.to_str().ok())
-                .and_then(|referer| {
-                    // Extract query part after '?'
-                    let query = referer.split('?').nth(1)?;
-                    query.split('&').find_map(|s| {
-                        let mut p = s.splitn(2, '=');
-                        let k = p.next()?.trim();
-                        let v = p.next()?.trim();
-                        if k == name { Some(v.to_string()) } else { None }
-                    })
-                })
-        })
-    }
-    #[cfg(not(feature = "ssr"))]
-    {
-        let _ = name;
-        None
     }
 }
 
@@ -546,157 +535,6 @@ where
 
     let cloned = initial_val.clone();
     let (signal, resource) = use_hydrate_signal(move || cloned.clone(), || T::fetch());
-    provide_context(HydratedSignal(signal));
-    provide_context(resource);
-
-    view! {
-        {children()}
-        <script type="application/json" id={script_id} inner_html={json} />
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Manual "With" components
-// ---------------------------------------------------------------------------
-
-/// Manual global state provider (closure-based).
-///
-/// Optionally provide `server_value` to inject an SSR-only value into the HTML
-/// (e.g. from an HTTP-only cookie). When `server_value` is `None`, `ssr_value`
-/// is used on both sides. The `<script>` tag is always rendered to keep the
-/// DOM structure identical on both sides.
-///
-/// ### Example
-///
-/// ```rust,no_run
-/// # use leptos::prelude::*;
-/// # use leptos_hydrated::*;
-/// # #[derive(Clone, Default, serde::Serialize, serde::Deserialize, PartialEq, Debug)]
-/// # struct ThemeState { theme: String }
-/// view! {
-///     <HydrateStateWith
-///         ssr_value=|| ThemeState { theme: get_cookie("theme").unwrap_or_else(|| "dark".into()) }
-///         fetcher=|| async {
-///             let theme = get_cookie("theme").unwrap_or_else(|| "dark".into());
-///             Some(ThemeState { theme })
-///         }
-///     />
-/// };
-/// ```
-#[component]
-pub fn HydrateStateWith<T, Fut>(
-    /// Client-side initial value. Also used on SSR when `server_value` is `None`.
-    ssr_value: impl Fn() -> T + 'static,
-    fetcher: impl Fn() -> Fut + Clone + Send + Sync + 'static,
-    /// SSR-only override. When provided the value is injected and the client
-    /// reads from the injection instead of calling `ssr_value`.
-    #[prop(optional)]
-    server_value: Option<T>,
-) -> impl IntoView
-where
-    T: Clone + Serialize + DeserializeOwned + Default + Send + Sync + PartialEq + 'static,
-    Fut: Future<Output = Option<T>> + Send + 'static,
-{
-    let id = type_hydration_id::<T>();
-    let script_id = format!("__lh_{}", id);
-
-    #[cfg(feature = "ssr")]
-    let (initial_val, json) = {
-        let val = server_value.unwrap_or_else(&ssr_value);
-        let json_str = serialize_for_injection(&val);
-        (val, json_str)
-    };
-
-    #[cfg(all(not(feature = "ssr"), feature = "hydrate"))]
-    let (initial_val, json) = {
-        let _ = server_value;
-        let val = read_injected_state::<T>(&id).unwrap_or_else(ssr_value);
-        let json_str = read_raw_injected_state(&id).unwrap_or_default();
-        (val, json_str)
-    };
-
-    #[cfg(all(not(feature = "ssr"), not(feature = "hydrate")))]
-    let (initial_val, json) = {
-        let _ = server_value;
-        let val = ssr_value();
-        let json_str = String::new();
-        (val, json_str)
-    };
-
-    let cloned = initial_val.clone();
-    let (signal, resource) = use_hydrate_signal(move || cloned.clone(), fetcher);
-    provide_context(HydratedSignal(signal));
-    provide_context(resource);
-
-    view! {
-        <script type="application/json" id={script_id} inner_html={json} />
-    }
-}
-
-/// Manual scoped state provider (closure-based).
-///
-/// Optionally provide `server_value` to inject an SSR-only value into the HTML.
-/// The `<script>` tag is always rendered to keep DOM structure consistent.
-///
-/// ### Example
-///
-/// ```rust,no_run
-/// # use leptos::prelude::*;
-/// # use leptos_hydrated::*;
-/// # #[derive(Clone, Default, serde::Serialize, serde::Deserialize, PartialEq, Debug)]
-/// # struct UserState { name: String }
-/// # #[component] fn ProfileInfo() -> impl IntoView { view! { "" } }
-/// view! {
-///     <HydrateContextWith
-///         ssr_value=|| UserState { name: get_cookie("username").unwrap_or_else(|| "Guest".into()) }
-///         fetcher=|| async {
-///             let name = get_cookie("username").unwrap_or_else(|| "Guest".into());
-///             Some(UserState { name })
-///         }
-///     >
-///         <ProfileInfo />
-///     </HydrateContextWith>
-/// };
-/// ```
-#[component]
-pub fn HydrateContextWith<T, Fut>(
-    ssr_value: impl Fn() -> T + 'static,
-    fetcher: impl Fn() -> Fut + Clone + Send + Sync + 'static,
-    children: Children,
-    #[prop(optional)] server_value: Option<T>,
-) -> impl IntoView
-where
-    T: Clone + Serialize + DeserializeOwned + Default + Send + Sync + PartialEq + 'static,
-    Fut: Future<Output = Option<T>> + Send + 'static,
-{
-    let id = type_hydration_id::<T>();
-    let script_id = format!("__lh_{}", id);
-
-    #[cfg(feature = "ssr")]
-    let (initial_val, json) = {
-        let val = server_value.unwrap_or_else(&ssr_value);
-        let json_str = serialize_for_injection(&val);
-        (val, json_str)
-    };
-
-    #[cfg(all(not(feature = "ssr"), feature = "hydrate"))]
-    let (initial_val, json) = {
-        let _ = server_value;
-        let val = read_injected_state::<T>(&id).unwrap_or_else(ssr_value);
-        let json_str = read_raw_injected_state(&id).unwrap_or_default();
-        (val, json_str)
-    };
-
-    #[cfg(all(not(feature = "ssr"), not(feature = "hydrate")))]
-    let (initial_val, json) = {
-        let _ = server_value;
-        let val = ssr_value();
-        let json_str = String::new();
-        (val, json_str)
-    };
-
-    let cloned = initial_val.clone();
-    let (signal, resource) = use_hydrate_signal(move || cloned.clone(), fetcher);
     provide_context(HydratedSignal(signal));
     provide_context(resource);
 

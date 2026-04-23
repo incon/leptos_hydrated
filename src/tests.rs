@@ -228,53 +228,6 @@ async fn test_hydrate_context_provides_context_to_children() {
     }).await;
 }
 
-#[tokio::test]
-async fn test_hydrate_state_with_provides_signal_and_resource() {
-    init_test_env();
-    let local = tokio::task::LocalSet::new();
-    local.run_until(async {
-        let owner = Owner::new_root(None);
-        owner.with(|| {
-            let _ = view! {
-                <HydrateStateWith
-                    ssr_value=|| ThemeState { theme: "dark".into() }
-                    fetcher=|| async { None::<ThemeState> }
-                />
-                {move || {
-                    let signal = use_hydrated::<ThemeState>();
-                    let _resource = use_hydrated_resource::<ThemeState>();
-                    assert_eq!(signal.get_untracked().theme, "dark");
-                    "".into_view()
-                }}
-            };
-        });
-    }).await;
-}
-
-#[tokio::test]
-async fn test_hydrate_context_with_provides_signal_and_resource() {
-    init_test_env();
-    let local = tokio::task::LocalSet::new();
-    local.run_until(async {
-        let owner = Owner::new_root(None);
-        owner.with(|| {
-            let _ = view! {
-                <HydrateContextWith
-                    ssr_value=|| ThemeState { theme: "dark".into() }
-                    fetcher=|| async { None::<ThemeState> }
-                >
-                    {move || {
-                        let signal = use_hydrated::<ThemeState>();
-                        let _resource = use_hydrated_resource::<ThemeState>();
-                        assert_eq!(signal.get_untracked().theme, "dark");
-                        "".into_view()
-                    }}
-                </HydrateContextWith>
-            };
-        });
-    }).await;
-}
-
 // ---------------------------------------------------------------------------
 // HydratedSignal wrapper
 // ---------------------------------------------------------------------------
@@ -312,28 +265,6 @@ fn test_try_use_hydrated_returns_none_when_no_context() {
     owner.with(|| {
         assert!(try_use_hydrated::<ThemeState>().is_none());
     });
-}
-
-#[tokio::test]
-async fn test_try_use_hydrated_resource_returns_some_when_context_exists() {
-    init_test_env();
-    let local = tokio::task::LocalSet::new();
-    local.run_until(async {
-        let owner = Owner::new_root(None);
-        owner.with(|| {
-            let _ = view! {
-                <HydrateContextWith
-                    ssr_value=|| ThemeState { theme: "dark".into() }
-                    fetcher=|| async { None::<ThemeState> }
-                >
-                    {move || {
-                        assert!(try_use_hydrated_resource::<ThemeState>().is_some());
-                        "".into_view()
-                    }}
-                </HydrateContextWith>
-            };
-        });
-    }).await;
 }
 
 #[test]
@@ -404,8 +335,8 @@ async fn test_get_referer_query_param_ssr() {
     let owner = Owner::new_root(None);
     owner.with(|| {
         provide_context(parts);
-        assert_eq!(get_referer_query_param("ref"), Some("123".into()));
-        assert_eq!(get_referer_query_param("missing"), None);
+        assert_eq!(get_query_param("ref"), Some("123".into()));
+        assert_eq!(get_query_param("missing"), None);
     });
 }
 
@@ -415,7 +346,6 @@ fn test_helpers_return_none_on_client() {
     // On client (without actual browser globals mocked) these should return None
     assert_eq!(get_cookie("any"), None);
     assert_eq!(get_query_param("any"), None);
-    assert_eq!(get_referer_query_param("any"), None);
 }
 
 // ---------------------------------------------------------------------------
