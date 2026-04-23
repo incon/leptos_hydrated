@@ -114,7 +114,7 @@
 //!
 //! ## Server-Side Setup
 //!
-//! For isomorphic helpers like [`get_cookie`] and [`set_cookie`] to work on the server,
+//! For isomorphic helpers like [`get_cookie`] and [`get_query_param`] to work on the server,
 //! you **must** use `.leptos_routes_with_context` in your Axum server setup.
 //! This provides the necessary request and response context to the library.
 //!
@@ -138,6 +138,7 @@
 //!     .with_state(leptos_options);
 //! # }
 //! ```
+//!
 
 use leptos::prelude::*;
 use serde::{Serialize, de::DeserializeOwned};
@@ -180,11 +181,6 @@ fn read_injected_state<T: DeserializeOwned>(id: &str) -> Option<T> {
 
     let js_val = JSON::parse(&text).ok()?;
     serde_wasm_bindgen::from_value(js_val).ok()
-}
-
-#[cfg(all(not(feature = "ssr"), not(feature = "hydrate")))]
-fn read_injected_state<T: DeserializeOwned>(_id: &str) -> Option<T> {
-    None
 }
 
 // ---------------------------------------------------------------------------
@@ -285,11 +281,6 @@ fn read_raw_injected_state(id: &str) -> Option<String> {
         .and_then(|el| el.text_content())
 }
 
-#[cfg(all(not(feature = "ssr"), not(feature = "hydrate")))]
-fn read_raw_injected_state(_id: &str) -> Option<String> {
-    None
-}
-
 // ---------------------------------------------------------------------------
 // Isomorphic Helpers
 // ---------------------------------------------------------------------------
@@ -341,7 +332,7 @@ pub fn get_cookie(name: &str) -> Option<String> {
     }
 }
 
-/// Reads a URL query parameter by name on both server and client.
+/// Reads a URL query parameter by name from the current URI on both server and client.
 ///
 /// - **SSR:** Reads from `http::request::Parts` (requires server setup with `leptos_routes_with_context`).
 /// - **Client:** Reads from `window.location.search`.
@@ -419,61 +410,14 @@ pub fn set_cookie(name: &str, value: &str, options: &str) {
         let _ = (name, value, options);
     }
 }
-/// Reads an HTTP header by name on both server and client.
-///
-/// - **SSR:** Reads from `http::request::Parts` (requires server setup with `leptos_routes_with_context`).
-/// - **Client:** Returns `None` (headers are not generally accessible in the browser context).
-pub fn get_header(name: &str) -> Option<String> {
-    #[cfg(feature = "ssr")]
-    {
-        use http::request::Parts;
-        use leptos::prelude::use_context;
 
-        use_context::<Parts>().and_then(|parts| {
-            parts
-                .headers
-                .get(name)
-                .and_then(|h| h.to_str().ok())
-                .map(|s| s.to_string())
-        })
-    }
-    #[cfg(not(feature = "ssr"))]
-    {
-        let _ = name;
-        None
-    }
-}
-
-/// Sets an HTTP header on both server and client.
-///
-/// - **SSR:** Inserts a header into `leptos_axum::ResponseOptions` (requires server setup with `leptos_routes_with_context`).
-/// - **Client:** No-op (use specific browser APIs like `document.cookie` via [`set_cookie`]).
-pub fn set_header(name: &str, value: &str) {
-    #[cfg(feature = "ssr")]
-    {
-        use http::HeaderValue;
-        use http::header::HeaderName;
-        use leptos::prelude::use_context;
-        use leptos_axum::ResponseOptions;
-        use std::str::FromStr;
-
-        if let Some(res) = use_context::<ResponseOptions>() {
-            if let (Ok(name), Ok(val)) = (HeaderName::from_str(name), HeaderValue::from_str(value))
-            {
-                res.insert_header(name, val);
-            }
-        }
-    }
-    #[cfg(not(feature = "ssr"))]
-    {
-        let _ = (name, value);
-    }
-}
-
-/// Reads a URL query parameter from the `Referer` header.
+/// Reads a URL query parameter by name from the `Referer` header on both server and client.
 ///
 /// Useful in server functions where the current request URI is the server function endpoint,
 /// but you need to know a query parameter from the page that made the request.
+///
+/// - **SSR:** Reads from `http::header::REFERER`.
+/// - **Client:** Returns `None`.
 pub fn get_referer_query_param(name: &str) -> Option<String> {
     #[cfg(feature = "ssr")]
     {
@@ -524,22 +468,39 @@ where
     let id = type_hydration_id::<T>();
     let script_id = format!("__lh_{}", id);
 
+    // 1. Online SSR Mode
+    // The server generates the initial value and serialises it for injection.
     #[cfg(feature = "ssr")]
-    let initial_val = T::initial();
-    #[cfg(not(feature = "ssr"))]
-    let initial_val = read_injected_state::<T>(&id).unwrap_or_else(T::initial);
+    let (initial_val, json) = {
+        let val = T::initial();
+        let json_str = serialize_for_injection(&val);
+        (val, json_str)
+    };
 
-    #[cfg(feature = "ssr")]
-    let json = serialize_for_injection(&initial_val);
-    #[cfg(not(feature = "ssr"))]
-    let json = read_raw_injected_state(&id).unwrap_or_default();
+    // 2. Client Hydration Mode (Offline PWA capable)
+    // The client expects a DOM. It tries to read it, but falls back to T::initial() if offline.
+    #[cfg(all(not(feature = "ssr"), feature = "hydrate"))]
+    let (initial_val, json) = {
+        let val = read_injected_state::<T>(&id).unwrap_or_else(T::initial);
+        let json_str = read_raw_injected_state(&id).unwrap_or_default();
+        (val, json_str)
+    };
+
+    // 3. Pure CSR Mode
+    // The client knows no server HTML exists. It skips the DOM entirely and goes straight to fallback.
+    #[cfg(all(not(feature = "ssr"), not(feature = "hydrate")))]
+    let (initial_val, json) = {
+        let val = T::initial();
+        let json_str = String::new();
+        (val, json_str)
+    };
 
     let cloned = initial_val.clone();
     let (signal, resource) = use_hydrate_signal(move || cloned.clone(), || T::fetch());
     provide_context(HydratedSignal(signal));
     provide_context(resource);
 
-    // Script tag rendered on BOTH sides — same DOM node count for hydration.
+    // Script tag rendered on BOTH sides to ensure the same DOM node count for hydration.
     // Content is populated on SSR; empty on client (already read above).
     view! {
         <script type="application/json" id={script_id} inner_html={json} />
@@ -563,14 +524,25 @@ where
     let script_id = format!("__lh_{}", id);
 
     #[cfg(feature = "ssr")]
-    let initial_val = T::initial();
-    #[cfg(not(feature = "ssr"))]
-    let initial_val = read_injected_state::<T>(&id).unwrap_or_else(T::initial);
+    let (initial_val, json) = {
+        let val = T::initial();
+        let json_str = serialize_for_injection(&val);
+        (val, json_str)
+    };
 
-    #[cfg(feature = "ssr")]
-    let json = serialize_for_injection(&initial_val);
-    #[cfg(not(feature = "ssr"))]
-    let json = read_raw_injected_state(&id).unwrap_or_default();
+    #[cfg(all(not(feature = "ssr"), feature = "hydrate"))]
+    let (initial_val, json) = {
+        let val = read_injected_state::<T>(&id).unwrap_or_else(T::initial);
+        let json_str = read_raw_injected_state(&id).unwrap_or_default();
+        (val, json_str)
+    };
+
+    #[cfg(all(not(feature = "ssr"), not(feature = "hydrate")))]
+    let (initial_val, json) = {
+        let val = T::initial();
+        let json_str = String::new();
+        (val, json_str)
+    };
 
     let cloned = initial_val.clone();
     let (signal, resource) = use_hydrate_signal(move || cloned.clone(), || T::fetch());
@@ -631,16 +603,24 @@ where
     #[cfg(feature = "ssr")]
     let (initial_val, json) = {
         let val = server_value.unwrap_or_else(&ssr_value);
-        let json = serialize_for_injection(&val);
-        (val, json)
+        let json_str = serialize_for_injection(&val);
+        (val, json_str)
     };
 
-    #[cfg(not(feature = "ssr"))]
+    #[cfg(all(not(feature = "ssr"), feature = "hydrate"))]
     let (initial_val, json) = {
         let _ = server_value;
         let val = read_injected_state::<T>(&id).unwrap_or_else(ssr_value);
-        let json = read_raw_injected_state(&id).unwrap_or_default();
-        (val, json)
+        let json_str = read_raw_injected_state(&id).unwrap_or_default();
+        (val, json_str)
+    };
+
+    #[cfg(all(not(feature = "ssr"), not(feature = "hydrate")))]
+    let (initial_val, json) = {
+        let _ = server_value;
+        let val = ssr_value();
+        let json_str = String::new();
+        (val, json_str)
     };
 
     let cloned = initial_val.clone();
@@ -695,16 +675,24 @@ where
     #[cfg(feature = "ssr")]
     let (initial_val, json) = {
         let val = server_value.unwrap_or_else(&ssr_value);
-        let json = serialize_for_injection(&val);
-        (val, json)
+        let json_str = serialize_for_injection(&val);
+        (val, json_str)
     };
 
-    #[cfg(not(feature = "ssr"))]
+    #[cfg(all(not(feature = "ssr"), feature = "hydrate"))]
     let (initial_val, json) = {
         let _ = server_value;
         let val = read_injected_state::<T>(&id).unwrap_or_else(ssr_value);
-        let json = read_raw_injected_state(&id).unwrap_or_default();
-        (val, json)
+        let json_str = read_raw_injected_state(&id).unwrap_or_default();
+        (val, json_str)
+    };
+
+    #[cfg(all(not(feature = "ssr"), not(feature = "hydrate")))]
+    let (initial_val, json) = {
+        let _ = server_value;
+        let val = ssr_value();
+        let json_str = String::new();
+        (val, json_str)
     };
 
     let cloned = initial_val.clone();

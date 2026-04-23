@@ -391,41 +391,6 @@ async fn test_get_query_param_ssr() {
 
 #[cfg(feature = "ssr")]
 #[tokio::test]
-async fn test_get_header_ssr() {
-    use http::Request;
-    
-    let (parts, _) = Request::builder()
-        .header("X-Test", "value")
-        .body(())
-        .unwrap()
-        .into_parts();
-        
-    let owner = Owner::new_root(None);
-    owner.with(|| {
-        provide_context(parts);
-        assert_eq!(get_header("X-Test"), Some("value".into()));
-        assert_eq!(get_header("Missing"), None);
-    });
-}
-
-#[cfg(feature = "ssr")]
-#[tokio::test]
-async fn test_set_header_ssr() {
-    use leptos_axum::ResponseOptions;
-    
-    let owner = Owner::new_root(None);
-    owner.with(|| {
-        let res = ResponseOptions::default();
-        provide_context(res.clone());
-        
-        // These should not panic
-        set_header("X-Response", "isomorphic");
-        set_cookie("session", "abc", "; path=/");
-    });
-}
-
-#[cfg(feature = "ssr")]
-#[tokio::test]
 async fn test_get_referer_query_param_ssr() {
     use http::Request;
     use http::header::REFERER;
@@ -450,7 +415,6 @@ fn test_helpers_return_none_on_client() {
     // On client (without actual browser globals mocked) these should return None
     assert_eq!(get_cookie("any"), None);
     assert_eq!(get_query_param("any"), None);
-    assert_eq!(get_header("any"), None);
     assert_eq!(get_referer_query_param("any"), None);
 }
 
