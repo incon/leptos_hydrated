@@ -1,5 +1,6 @@
 use leptos::prelude::*;
 use leptos_hydrated::*;
+use leptos_hydrated::browser_only;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Default, Serialize, Deserialize, Debug, PartialEq)]
@@ -14,8 +15,9 @@ impl ProfileState {
         state.update(|s| {
             let new_theme = if s.theme == "dark" { "light" } else { "dark" };
             s.theme = new_theme.to_string();
-            #[cfg(not(feature = "ssr"))]
-            set_cookie("theme", &new_theme, "; path=/; max-age=31536000");
+            browser_only! {
+                set_cookie("theme", &new_theme, "; path=/; max-age=31536000");
+            };
         });
     }
 
@@ -24,8 +26,9 @@ impl ProfileState {
             if s.is_authenticated {
                 s.is_authenticated = false;
                 s.profile = None;
-                #[cfg(not(feature = "ssr"))]
-                set_cookie("session", "", "; path=/; max-age=0");
+                browser_only! {
+                    set_cookie("session", "", "; path=/; max-age=0");
+                };
             } else {
                 s.is_authenticated = true;
                 let profile = UserProfile {
@@ -34,21 +37,21 @@ impl ProfileState {
                     edits: 42,
                 };
                 s.profile = Some(profile.clone());
-                #[cfg(not(feature = "ssr"))]
-                if let Ok(json) = serde_json::to_string(&profile) {
-                    set_cookie(
-                        "session",
-                        &urlencoding::encode(&json),
-                        "; path=/; max-age=31536000",
-                    );
-                }
+                browser_only! {
+                    if let Ok(json) = serde_json::to_string(&profile) {
+                        set_cookie(
+                            "session",
+                            &urlencoding::encode(&json),
+                            "; path=/; max-age=31536000",
+                        );
+                    }
+                };
             }
         });
-        #[cfg(not(feature = "ssr"))]
-        {
+        browser_only! {
             use leptos::prelude::window;
             let _ = window().location().reload();
-        }
+        };
     }
 }
 

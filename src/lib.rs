@@ -118,32 +118,60 @@ mod mock_state {
 }
 
 // ---------------------------------------------------------------------------
+// Isomorphic Helpers
+// ---------------------------------------------------------------------------
+
+#[macro_export]
+macro_rules! hydrated {
+    (ssr => $ssr:expr, csr => $csr:expr $(,)?) => {{
+        #[cfg(not(feature = "browser"))]
+        {
+            $ssr
+        }
+        #[cfg(feature = "browser")]
+        {
+            $csr
+        }
+    }};
+}
+
+/// Executes the given block only on the server.
+/// Returns the result of the block on the server, or `()` in the browser.
+/// This is useful for side-effects where you don't need an `Option`.
+#[macro_export]
+macro_rules! server_only {
+    ($($t:tt)*) => {
+        {
+            #[cfg(not(feature = "browser"))]
+            { $($t)*; }
+            ()
+        }
+    }
+}
+
+/// Executes the given block only in the browser.
+/// Returns the result of the block in the browser, or `()` on the server.
+/// This is useful for side-effects where you don't need an `Option`.
+#[macro_export]
+macro_rules! browser_only {
+    ($($t:tt)*) => {
+        {
+            #[cfg(feature = "browser")]
+            { $($t)*; }
+            ()
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Helpers: type-stable DOM id, serialization, and injection reading
 // ---------------------------------------------------------------------------
 
 pub(crate) fn type_hydration_id<T: 'static>() -> String {
-    let name = std::any::type_name::<T>();
-    let mut out = String::with_capacity(name.len());
-    let mut last_was_upper = false;
-
-    for (i, c) in name.chars().enumerate() {
-        if c.is_uppercase() {
-            if i > 0 && !last_was_upper {
-                out.push('_');
-            }
-            out.push(c.to_ascii_lowercase());
-            last_was_upper = true;
-        } else if c.is_alphanumeric() {
-            out.push(c);
-            last_was_upper = false;
-        } else {
-            if !out.ends_with('_') {
-                out.push('_');
-            }
-            last_was_upper = true;
-        }
-    }
-    out
+    std::any::type_name::<T>()
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { '_' })
+        .collect::<String>()
 }
 
 #[cfg(not(all(feature = "browser", target_arch = "wasm32")))]

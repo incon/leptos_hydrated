@@ -1,5 +1,6 @@
 use leptos::prelude::*;
-use leptos_hydrated::use_hydrated;
+use leptos_hydrated::*;
+use leptos_hydrated::browser_only;
 use crate::states::{SecureUserData, LoginSecure, LogoutSecure};
 use crate::components::TabPanel;
 
@@ -20,11 +21,10 @@ pub fn HttpOnlyTab(tab: &'static str) -> impl IntoView {
     // Reload the page after login/logout to see the HTTP-only cookie in action
     Effect::new(move |_| {
         if login_action.value().get().is_some() || logout_action.value().get().is_some() {
-            #[cfg(not(feature = "ssr"))]
-            {
+            browser_only! {
                 use leptos::prelude::window;
                 let _ = window().location().reload();
-            }
+            };
         }
     });
 

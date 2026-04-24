@@ -1,6 +1,7 @@
 use leptos::prelude::*;
 use leptos_hydrated::*;
 use serde::{Deserialize, Serialize};
+use leptos_hydrated::hydrated;
 
 #[derive(Clone, Default, Serialize, Deserialize, Debug, PartialEq)]
 pub struct TodoItem {
@@ -17,28 +18,25 @@ pub struct TodoState {
 
 impl Hydratable for TodoState {
     fn initial() -> Self {
-        #[cfg(feature = "ssr")]
-        {
-            // Initial state is empty on server (or you could use cookies)
-            Self::default()
-        }
-        #[cfg(not(feature = "ssr"))]
-        {
-            // On client, try to restore from localStorage (sync)
-            leptos::logging::log!("LocalStorage: Restoring todos state...");
-            let window = web_sys::window().unwrap();
-            let storage = window.local_storage().unwrap().unwrap();
-            match storage.get_item("todos") {
-                Ok(Some(json)) => {
-                    leptos::logging::log!("LocalStorage: Fetched JSON: {}", json);
-                    js_sys::JSON::parse(&json)
-                        .ok()
-                        .and_then(|js_val| serde_wasm_bindgen::from_value(js_val).ok())
-                        .unwrap_or_default()
-                }
-                _ => {
-                    leptos::logging::log!("LocalStorage: No todos found.");
-                    Self::default()
+        hydrated! {
+            ssr => Self::default(),
+            csr => {
+                // On client, try to restore from localStorage (sync)
+                leptos::logging::log!("LocalStorage: Restoring todos state...");
+                let window = web_sys::window().unwrap();
+                let storage = window.local_storage().unwrap().unwrap();
+                match storage.get_item("todos") {
+                    Ok(Some(json)) => {
+                        leptos::logging::log!("LocalStorage: Fetched JSON: {}", json);
+                        js_sys::JSON::parse(&json)
+                            .ok()
+                            .and_then(|js_val| serde_wasm_bindgen::from_value(js_val).ok())
+                            .unwrap_or_default()
+                    }
+                    _ => {
+                        leptos::logging::log!("LocalStorage: No todos found.");
+                        Self::default()
+                    }
                 }
             }
         }
@@ -58,17 +56,15 @@ impl Default for OnlineState {
 
 impl Hydratable for OnlineState {
     fn initial() -> Self {
-        #[cfg(feature = "ssr")]
-        {
-            Self {
+        hydrated! {
+            ssr => Self {
                 online: get_cookie("online_status").map_or(true, |v| v == "true"),
-            }
-        }
-        #[cfg(feature = "browser")]
-        {
-            let window = web_sys::window().unwrap();
-            Self {
-                online: window.navigator().on_line(),
+            },
+            csr => {
+                let window = web_sys::window().unwrap();
+                Self {
+                    online: window.navigator().on_line(),
+                }
             }
         }
     }

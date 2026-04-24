@@ -373,7 +373,7 @@ fn test_serialize_for_injection_internal() {
     assert_eq!(json, r#"{"theme":"dark"}"#);
 
     let id = type_hydration_id::<ThemeState>();
-    assert!(id.contains("theme_state"));
+    assert!(id.contains("ThemeState"));
 }
 
 #[tokio::test]
