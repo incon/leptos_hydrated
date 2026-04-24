@@ -107,7 +107,7 @@
 use leptos::prelude::*;
 use serde::{Serialize, de::DeserializeOwned};
 
-#[cfg(feature = "ssr")]
+#[cfg(any(feature = "ssr", not(target_arch = "wasm32")))]
 mod mock_state {
     use std::cell::RefCell;
     use std::collections::HashMap;
@@ -181,25 +181,34 @@ pub(crate) fn serialize_for_injection<T: Serialize>(value: &T) -> String {
 
 #[cfg(not(feature = "ssr"))]
 fn read_injected_state<T: DeserializeOwned>(id: &str) -> Option<T> {
-    use js_sys::JSON;
-    use wasm_bindgen::JsCast as _;
-    use wasm_bindgen::JsValue;
+    #[cfg(all(target_arch = "wasm32", feature = "hydrate"))]
+    {
+        use js_sys::JSON;
+        use wasm_bindgen::JsCast as _;
+        use wasm_bindgen::JsValue;
 
-    let doc = document();
-    let script_id = format!("__lh_{}", id);
+        let doc = document();
+        let script_id = format!("__lh_{}", id);
 
-    let el: JsValue = js_sys::Reflect::get(&doc, &JsValue::from_str("getElementById"))
-        .ok()
-        .and_then(|f| f.dyn_into::<js_sys::Function>().ok())
-        .and_then(|f| f.call1(&doc, &JsValue::from_str(&script_id)).ok())
-        .filter(|v: &JsValue| !v.is_null() && !v.is_undefined())?;
+        let el: JsValue = js_sys::Reflect::get(&doc, &JsValue::from_str("getElementById"))
+            .ok()
+            .and_then(|f| f.dyn_into::<js_sys::Function>().ok())
+            .and_then(|f| f.call1(&doc, &JsValue::from_str(&script_id)).ok())
+            .filter(|v: &JsValue| !v.is_null() && !v.is_undefined())?;
 
-    let text = js_sys::Reflect::get(&el, &JsValue::from_str("textContent"))
-        .ok()
-        .and_then(|v| v.as_string())?;
+        let text = js_sys::Reflect::get(&el, &JsValue::from_str("textContent"))
+            .ok()
+            .and_then(|v| v.as_string())?;
 
-    let js_val = JSON::parse(&text).ok()?;
-    serde_wasm_bindgen::from_value(js_val).ok()
+        let js_val = JSON::parse(&text).ok()?;
+        serde_wasm_bindgen::from_value(js_val).ok()
+    }
+
+    #[cfg(any(not(target_arch = "wasm32"), not(feature = "hydrate")))]
+    {
+        let _ = id;
+        None
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -277,10 +286,7 @@ where
         }
     });
 
-    #[cfg(all(
-        not(feature = "ssr"),
-        any(not(feature = "ssr"), not(test))
-    ))]
+    #[cfg(all(not(feature = "ssr"), any(not(feature = "ssr"), not(test))))]
     {
         let resource_cloned = resource.clone();
         leptos::task::spawn_local(async move {
@@ -307,7 +313,7 @@ where
 /// - **SSR:** Reads from `http::request::Parts` (requires server setup with `leptos_routes_with_context`).
 /// - **Client:** Reads from `document.cookie`.
 pub fn get_cookie(name: &str) -> Option<String> {
-    #[cfg(not(feature = "ssr"))]
+    #[cfg(all(target_arch = "wasm32", not(feature = "ssr")))]
     {
         let cookies = js_sys::Reflect::get(&document(), &wasm_bindgen::JsValue::from_str("cookie"))
             .ok()
@@ -322,7 +328,7 @@ pub fn get_cookie(name: &str) -> Option<String> {
         });
     }
 
-    #[cfg(feature = "ssr")]
+    #[cfg(any(feature = "ssr", not(target_arch = "wasm32")))]
     {
         #[cfg(feature = "ssr")]
         {
@@ -362,7 +368,7 @@ pub fn get_cookie(name: &str) -> Option<String> {
 ///   from the page that made the request are needed.
 /// - **Client:** Reads from `window.location.search`.
 pub fn get_query_param(name: &str) -> Option<String> {
-    #[cfg(not(feature = "ssr"))]
+    #[cfg(all(target_arch = "wasm32", not(feature = "ssr")))]
     {
         return window().location().search().ok().and_then(|q| {
             q.trim_start_matches('?').split('&').find_map(|s| {
@@ -374,7 +380,7 @@ pub fn get_query_param(name: &str) -> Option<String> {
         });
     }
 
-    #[cfg(feature = "ssr")]
+    #[cfg(any(feature = "ssr", not(target_arch = "wasm32")))]
     {
         #[cfg(feature = "ssr")]
         {
@@ -426,21 +432,7 @@ pub fn get_query_param(name: &str) -> Option<String> {
 ///
 /// `options` should be a string like `; path=/; SameSite=Lax`.
 pub fn set_cookie(name: &str, value: &str, options: &str) {
-    #[cfg(feature = "ssr")]
-    {
-        use http::HeaderValue;
-        use http::header::SET_COOKIE;
-        use leptos::prelude::use_context;
-        use leptos_axum::ResponseOptions;
-
-        if let Some(res) = use_context::<ResponseOptions>() {
-            let cookie = format!("{}={}{}", name, value, options);
-            if let Ok(val) = HeaderValue::from_str(&cookie) {
-                res.insert_header(SET_COOKIE, val);
-            }
-        }
-    }
-    #[cfg(not(feature = "ssr"))]
+    #[cfg(all(target_arch = "wasm32", not(feature = "ssr")))]
     {
         let cookie = format!("{}={}{}", name, value, options);
         let _ = js_sys::Reflect::set(
@@ -449,11 +441,22 @@ pub fn set_cookie(name: &str, value: &str, options: &str) {
             &wasm_bindgen::JsValue::from_str(&cookie),
         );
     }
-    #[cfg(all(
-        not(feature = "ssr"),
-        feature = "ssr"
-    ))]
+    #[cfg(any(feature = "ssr", not(target_arch = "wasm32")))]
     {
+        #[cfg(feature = "ssr")]
+        {
+            use http::HeaderValue;
+            use http::header::SET_COOKIE;
+            use leptos::prelude::use_context;
+            use leptos_axum::ResponseOptions;
+
+            if let Some(res) = use_context::<ResponseOptions>() {
+                let cookie = format!("{}={}{}", name, value, options);
+                if let Ok(val) = HeaderValue::from_str(&cookie) {
+                    res.insert_header(SET_COOKIE, val);
+                }
+            }
+        }
         mock_state::COOKIES.with(|c| {
             c.borrow_mut().insert(name.to_string(), value.to_string());
         });
@@ -480,18 +483,24 @@ where
     provide_context(HydratedSignal(signal));
     provide_context(resource);
 
-    let id = type_hydration_id::<T>();
-    let script_id = format!("__lh_{}", id);
-
-    view! {
-        <script type="application/json" id={script_id}
-            inner_html={
-                #[cfg(feature = "ssr")]
-                { serialize_for_injection(&T::initial()) }
-                #[cfg(not(feature = "ssr"))]
-                { "" }
-            }
-        />
+    #[cfg(any(feature = "ssr", target_arch = "wasm32"))]
+    {
+        let id = type_hydration_id::<T>();
+        let script_id = format!("__lh_{}", id);
+        view! {
+            <script type="application/json" id={script_id}
+                inner_html={
+                    #[cfg(feature = "ssr")]
+                    { serialize_for_injection(&T::initial()) }
+                    #[cfg(not(feature = "ssr"))]
+                    { "" }
+                }
+            />
+        }
+    }
+    #[cfg(all(not(feature = "ssr"), not(target_arch = "wasm32")))]
+    {
+        view! { }
     }
 }
 
@@ -510,20 +519,29 @@ where
     let (signal, resource) = use_hydrate_signal::<T>();
     provide_context(HydratedSignal(signal));
     provide_context(resource);
-
-    let id = type_hydration_id::<T>();
-    let script_id = format!("__lh_{}", id);
-
     view! {
         {children()}
-        <script type="application/json" id={script_id}
-            inner_html={
-                #[cfg(feature = "ssr")]
-                { serialize_for_injection(&T::initial()) }
-                #[cfg(not(feature = "ssr"))]
-                { "" }
+        {
+            #[cfg(any(feature = "ssr", target_arch = "wasm32"))]
+            {
+                let id = type_hydration_id::<T>();
+                let script_id = format!("__lh_{}", id);
+                view! {
+                    <script type="application/json" id={script_id}
+                        inner_html={
+                            #[cfg(feature = "ssr")]
+                            { serialize_for_injection(&T::initial()) }
+                            #[cfg(not(feature = "ssr"))]
+                            { "" }
+                        }
+                    />
+                }
             }
-        />
+            #[cfg(all(not(feature = "ssr"), not(target_arch = "wasm32")))]
+            {
+                view! { }
+            }
+        }
     }
 }
 

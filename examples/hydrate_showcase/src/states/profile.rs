@@ -38,10 +38,13 @@ impl ProfileState {
                 };
                 s.profile = Some(profile.clone());
                 browser_only! {
-                    if let Ok(json) = serde_json::to_string(&profile) {
+                    let js_val = serde_wasm_bindgen::to_value(&profile).unwrap();
+                    if let Ok(json) = js_sys::JSON::stringify(&js_val) {
+                        let json_str: String = json.into();
+                        let encoded = js_sys::encode_uri_component(&json_str);
                         set_cookie(
                             "session",
-                            &urlencoding::encode(&json),
+                            &String::from(encoded),
                             "; path=/; max-age=31536000",
                         );
                     }
@@ -79,9 +82,22 @@ pub fn read_profile_state() -> ProfileState {
     }
 
     if let Some(sess_cookie) = get_cookie("session") {
-        if let Ok(decoded) = urlencoding::decode(&sess_cookie) {
-            if let Ok(parsed) = serde_json::from_str::<UserProfile>(&decoded) {
-                profile = Some(parsed);
+        #[cfg(feature = "ssr")]
+        {
+            if let Ok(decoded) = urlencoding::decode(&sess_cookie) {
+                if let Ok(parsed) = serde_json::from_str::<UserProfile>(&decoded) {
+                    profile = Some(parsed);
+                }
+            }
+        }
+        #[cfg(not(feature = "ssr"))]
+        {
+            let decoded = js_sys::decode_uri_component(&sess_cookie).unwrap_or_default();
+            let decoded_str: String = decoded.into();
+            if let Ok(js_val) = js_sys::JSON::parse(&decoded_str) {
+                if let Ok(parsed) = serde_wasm_bindgen::from_value::<UserProfile>(js_val) {
+                    profile = Some(parsed);
+                }
             }
         }
     }
@@ -101,9 +117,9 @@ pub async fn fetch_profile_state() -> Result<ProfileState, ServerFnError> {
 
 #[server]
 pub async fn update_profile(name: String, role: String) -> Result<UserProfile, ServerFnError> {
-    let current_profile = get_cookie("session")
-        .and_then(|s| urlencoding::decode(&s).ok().map(|d| d.into_owned()))
-        .and_then(|decoded| serde_json::from_str::<UserProfile>(&decoded).ok());
+    let session = get_cookie("session").unwrap_or_default();
+    let decoded = urlencoding::decode(&session).map(|d| d.into_owned()).unwrap_or_default();
+    let current_profile = serde_json::from_str::<UserProfile>(&decoded).ok();
 
     let current_edits = match current_profile {
         Some(p) => p.edits,

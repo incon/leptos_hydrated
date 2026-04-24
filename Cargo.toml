@@ -13,10 +13,11 @@ readme = "README.md"
 documentation = "https://docs.rs/leptos_hydrated"
 
 [features]
-ssr     = ["leptos/ssr", "dep:serde_json", "dep:leptos_axum", "dep:http"]
-hydrate = ["browser"]
-csr     = ["browser"]
-browser = ["dep:js-sys", "dep:wasm-bindgen", "dep:serde-wasm-bindgen"]
+ssr      = ["leptos/ssr", "dep:serde_json", "dep:leptos_axum", "dep:http"]
+hydrate  = ["browser", "dep:serde-wasm-bindgen"]
+csr      = ["browser"]
+hydrated = ["ssr", "hydrate"]
+browser  = ["dep:js-sys", "dep:wasm-bindgen"]
 
 [dependencies]
 leptos           = { version = "0.8" }
@@ -46,3 +47,4 @@ opt-level = 'z'
 lto = true
 codegen-units = 1
 panic = "abort"
+strip = true

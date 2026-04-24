@@ -721,6 +721,7 @@ dependencies = [
  "leptos_meta",
  "leptos_router",
  "serde",
+ "serde-wasm-bindgen",
  "serde_json",
  "tokio",
  "urlencoding",
