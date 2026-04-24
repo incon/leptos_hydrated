@@ -31,7 +31,10 @@ impl Hydratable for TodoState {
             match storage.get_item("todos") {
                 Ok(Some(json)) => {
                     leptos::logging::log!("LocalStorage: Fetched JSON: {}", json);
-                    serde_json::from_str(&json).unwrap_or_default()
+                    js_sys::JSON::parse(&json)
+                        .ok()
+                        .and_then(|js_val| serde_wasm_bindgen::from_value(js_val).ok())
+                        .unwrap_or_default()
                 }
                 _ => {
                     leptos::logging::log!("LocalStorage: No todos found.");

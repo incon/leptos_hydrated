@@ -36,7 +36,6 @@ browser = [
     "leptos/hydrate",
     "dep:console_error_panic_hook",
     "dep:wasm-bindgen",
-    "dep:serde_json",
     "leptos_hydrated/hydrate",
 ]
 ssr = [

@@ -113,10 +113,13 @@ fn TodoPersistence() -> impl IntoView {
         let state = use_hydrated::<TodoState>();
         let current = state.get();
 
-        if let Ok(json) = serde_json::to_string(&current) {
-            let window = web_sys::window().unwrap();
-            let storage = window.local_storage().unwrap().unwrap();
-            let _ = storage.set_item("todos", &json);
+        if let Ok(js_val) = serde_wasm_bindgen::to_value(&current) {
+            if let Ok(json) = js_sys::JSON::stringify(&js_val) {
+                let window = web_sys::window().unwrap();
+                let storage = window.local_storage().unwrap().unwrap();
+                let json_str: String = json.into();
+                let _ = storage.set_item("todos", &json_str);
+            }
         }
     });
 
