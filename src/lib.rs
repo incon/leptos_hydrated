@@ -384,39 +384,19 @@ pub fn get_query_param(name: &str) -> Option<String> {
     {
         #[cfg(feature = "ssr")]
         {
-            use http::header::REFERER;
             use http::request::Parts;
             use leptos::prelude::use_context;
 
             if let Some(val) = use_context::<Parts>().and_then(|parts| {
-                // 1. Try current URI query
-                let direct = parts.uri.query().and_then(|q| {
+                // Try current URI query
+                parts.uri.query().and_then(|q| {
                     q.split('&').find_map(|s| {
                         let mut parts = s.splitn(2, '=');
                         let k = parts.next()?.trim();
                         let v = parts.next()?.trim();
                         if k == name { Some(v.to_string()) } else { None }
                     })
-                });
-
-                if direct.is_some() {
-                    return direct;
-                }
-
-                // 2. Fall back to Referer query
-                parts
-                    .headers
-                    .get(REFERER)
-                    .and_then(|h| h.to_str().ok())
-                    .and_then(|referer| {
-                        let query = referer.split('?').nth(1)?;
-                        query.split('&').find_map(|s| {
-                            let mut p = s.splitn(2, '=');
-                            let k = p.next()?.trim();
-                            let v = p.next()?.trim();
-                            if k == name { Some(v.to_string()) } else { None }
-                        })
-                    })
+                })
             }) {
                 return Some(val);
             }

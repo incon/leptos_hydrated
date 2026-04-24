@@ -1,6 +1,7 @@
 use leptos::prelude::*;
+use leptos::form::ActionForm;
 use leptos_hydrated::use_hydrated;
-use crate::states::{ProfileState, UpdateProfile};
+use crate::states::{ProfileState, UpdateProfile, ToggleLoginServer};
 use crate::components::{UpdateProfileForm, TabPanel};
 
 #[component]
@@ -42,12 +43,15 @@ pub fn ReactivityTab(tab: &'static str) -> impl IntoView {
                         }
                             .into_any()
                     } else {
+                        let toggle_login = ServerAction::<ToggleLoginServer>::new();
                         view! {
                             <div class="guest-state">
                                 <p>"You must be logged in to edit your profile."</p>
-                                <button class="btn btn-primary" on:click=move |_| ProfileState::toggle_login(profile_state)>
-                                    "Log In Now"
-                                </button>
+                                <ActionForm action=toggle_login>
+                                    <button type="submit" class="btn btn-primary">
+                                        "Log In Now"
+                                    </button>
+                                </ActionForm>
                             </div>
                         }
                             .into_any()

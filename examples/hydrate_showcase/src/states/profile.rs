@@ -142,3 +142,33 @@ pub async fn update_profile(name: String, role: String) -> Result<UserProfile, S
 
     Ok(profile)
 }
+
+#[server]
+pub async fn toggle_theme_server() -> Result<(), ServerFnError> {
+    let theme = get_cookie("theme").unwrap_or_else(|| "light".to_string());
+    let new_theme = if theme == "dark" { "light" } else { "dark" };
+    set_cookie("theme", &new_theme, "; path=/; max-age=31536000");
+    Ok(())
+}
+
+#[server]
+pub async fn toggle_login_server() -> Result<(), ServerFnError> {
+    let profile = read_profile_state();
+    if profile.is_authenticated {
+        set_cookie("session", "", "; path=/; max-age=0");
+    } else {
+        let new_profile = UserProfile {
+            name: "Leptos Developer".to_string(),
+            role: "Systems Administrator".to_string(),
+            edits: 42,
+        };
+        if let Ok(json) = serde_json::to_string(&new_profile) {
+            set_cookie(
+                "session",
+                &urlencoding::encode(&json),
+                "; path=/; max-age=31536000",
+            );
+        }
+    }
+    Ok(())
+}

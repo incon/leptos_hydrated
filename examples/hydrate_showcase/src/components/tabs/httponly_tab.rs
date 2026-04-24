@@ -1,4 +1,5 @@
 use leptos::prelude::*;
+use leptos::form::ActionForm;
 use leptos_hydrated::*;
 use leptos_hydrated::browser_only;
 use crate::states::{SecureUserData, LoginSecure, LogoutSecure};
@@ -9,14 +10,6 @@ pub fn HttpOnlyTab(tab: &'static str) -> impl IntoView {
     let secure_state = use_hydrated::<SecureUserData>();
     let login_action = ServerAction::<LoginSecure>::new();
     let logout_action = ServerAction::<LogoutSecure>::new();
-
-    let on_login = move |_| {
-        login_action.dispatch(LoginSecure {});
-    };
-
-    let on_logout = move |_| {
-        logout_action.dispatch(LogoutSecure {});
-    };
 
     // Reload the page after login/logout to see the HTTP-only cookie in action
     Effect::new(move |_| {
@@ -50,17 +43,21 @@ pub fn HttpOnlyTab(tab: &'static str) -> impl IntoView {
                                     <span class="label">"Current Balance:"</span>
                                     <span class="balance-display">{format!("${}.00", state.balance)}</span>
                                     
-                                    <button class="btn btn-danger" on:click=on_logout
-                                        style="margin-top: 1rem; align-self: flex-start;">
-                                        "Secure Log Out"
-                                    </button>
+                                    <ActionForm action=logout_action>
+                                        <button type="submit" class="btn btn-danger"
+                                            style="margin-top: 1rem; align-self: flex-start;">
+                                            "Secure Log Out"
+                                        </button>
+                                    </ActionForm>
                                 </div>
                             }.into_any()
                         } else {
                             view! {
                                 <div class="login-prompt">
                                     <p>"No secure session active. Your balance is protected by HTTP-only cookies."</p>
-                                    <button class="btn btn-primary" on:click=on_login>"Secure Log In"</button>
+                                    <ActionForm action=login_action>
+                                        <button type="submit" class="btn btn-primary">"Secure Log In"</button>
+                                    </ActionForm>
                                 </div>
                             }.into_any()
                         }
