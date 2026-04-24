@@ -28,7 +28,6 @@ web-sys = { version = "0.3.72", features = ["HtmlFormElement", "FormData", "Html
 
 [features]
 hydrate = ["browser"]
-csr     = ["browser"]
 browser = [
     "leptos/hydrate",
     "dep:console_error_panic_hook",

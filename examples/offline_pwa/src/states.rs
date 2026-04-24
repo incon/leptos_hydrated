@@ -1,7 +1,9 @@
-use leptos::prelude::*;
 use leptos_hydrated::*;
 use serde::{Deserialize, Serialize};
 use leptos_hydrated::hydrated;
+
+#[cfg(feature = "browser")]
+use leptos::prelude::*;
 
 #[derive(Clone, Default, Serialize, Deserialize, Debug, PartialEq)]
 pub struct TodoItem {
