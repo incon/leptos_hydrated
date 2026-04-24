@@ -2,7 +2,7 @@ use leptos_hydrated::*;
 use serde::{Deserialize, Serialize};
 use leptos_hydrated::hydrated;
 
-#[cfg(feature = "browser")]
+#[cfg(not(feature = "ssr"))]
 use leptos::prelude::*;
 
 #[derive(Clone, Default, Serialize, Deserialize, Debug, PartialEq)]
@@ -71,7 +71,7 @@ impl Hydratable for OnlineState {
         }
     }
 
-    #[cfg(feature = "browser")]
+    #[cfg(not(feature = "ssr"))]
     fn on_hydrate(&self, online_state: RwSignal<Self>) {
         use leptos::ev;
         let window = web_sys::window().unwrap();

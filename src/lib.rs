@@ -107,7 +107,7 @@
 use leptos::prelude::*;
 use serde::{Serialize, de::DeserializeOwned};
 
-#[cfg(not(all(feature = "browser", target_arch = "wasm32")))]
+#[cfg(feature = "ssr")]
 mod mock_state {
     use std::cell::RefCell;
     use std::collections::HashMap;
@@ -124,11 +124,11 @@ mod mock_state {
 #[macro_export]
 macro_rules! hydrated {
     (ssr => $ssr:expr, csr => $csr:expr $(,)?) => {{
-        #[cfg(not(feature = "browser"))]
+        #[cfg(feature = "ssr")]
         {
             $ssr
         }
-        #[cfg(feature = "browser")]
+        #[cfg(not(feature = "ssr"))]
         {
             $csr
         }
@@ -142,7 +142,7 @@ macro_rules! hydrated {
 macro_rules! server_only {
     ($($t:tt)*) => {
         {
-            #[cfg(not(feature = "browser"))]
+            #[cfg(feature = "ssr")]
             { $($t)*; }
             ()
         }
@@ -156,7 +156,7 @@ macro_rules! server_only {
 macro_rules! browser_only {
     ($($t:tt)*) => {
         {
-            #[cfg(feature = "browser")]
+            #[cfg(not(feature = "ssr"))]
             { $($t)*; }
             ()
         }
@@ -174,12 +174,12 @@ pub(crate) fn type_hydration_id<T: 'static>() -> String {
         .collect::<String>()
 }
 
-#[cfg(not(all(feature = "browser", target_arch = "wasm32")))]
+#[cfg(feature = "ssr")]
 pub(crate) fn serialize_for_injection<T: Serialize>(value: &T) -> String {
     leptos::serde_json::to_string(value).unwrap_or_default()
 }
 
-#[cfg(all(feature = "browser", target_arch = "wasm32"))]
+#[cfg(not(feature = "ssr"))]
 fn read_injected_state<T: DeserializeOwned>(id: &str) -> Option<T> {
     use js_sys::JSON;
     use wasm_bindgen::JsCast as _;
@@ -219,7 +219,7 @@ pub trait Hydratable:
     fn initial() -> Self;
 
     /// Optional hook called on the client after the signal is created and hydrated.
-    #[cfg(feature = "browser")]
+    #[cfg(any(feature = "hydrate", feature = "csr"))]
     fn on_hydrate(&self, _signal: RwSignal<Self>) {}
 }
 
@@ -245,7 +245,7 @@ pub fn use_hydrate_signal<T>() -> (RwSignal<T>, LocalResource<Option<T>>)
 where
     T: Hydratable + PartialEq,
 {
-    #[cfg(all(feature = "browser", target_arch = "wasm32"))]
+    #[cfg(not(feature = "ssr"))]
     let (initial_val, is_injected) = {
         let id = type_hydration_id::<T>();
         let injected = read_injected_state::<T>(&id);
@@ -253,7 +253,7 @@ where
         (injected.unwrap_or_else(T::initial), is_inj)
     };
 
-    #[cfg(not(all(feature = "browser", target_arch = "wasm32")))]
+    #[cfg(feature = "ssr")]
     let (initial_val, is_injected) = (T::initial(), false);
 
     let signal = RwSignal::new(initial_val.clone());
@@ -279,7 +279,7 @@ where
 
     #[cfg(all(
         not(feature = "ssr"),
-        any(all(feature = "browser", target_arch = "wasm32"), not(test))
+        any(not(feature = "ssr"), not(test))
     ))]
     {
         let resource_cloned = resource.clone();
@@ -290,7 +290,7 @@ where
         });
     }
 
-    #[cfg(feature = "browser")]
+    #[cfg(any(feature = "hydrate", feature = "csr"))]
     {
         initial_val.on_hydrate(signal);
     }
@@ -307,7 +307,7 @@ where
 /// - **SSR:** Reads from `http::request::Parts` (requires server setup with `leptos_routes_with_context`).
 /// - **Client:** Reads from `document.cookie`.
 pub fn get_cookie(name: &str) -> Option<String> {
-    #[cfg(all(feature = "browser", target_arch = "wasm32"))]
+    #[cfg(not(feature = "ssr"))]
     {
         let cookies = js_sys::Reflect::get(&document(), &wasm_bindgen::JsValue::from_str("cookie"))
             .ok()
@@ -322,7 +322,7 @@ pub fn get_cookie(name: &str) -> Option<String> {
         });
     }
 
-    #[cfg(not(all(feature = "browser", target_arch = "wasm32")))]
+    #[cfg(feature = "ssr")]
     {
         #[cfg(feature = "ssr")]
         {
@@ -362,7 +362,7 @@ pub fn get_cookie(name: &str) -> Option<String> {
 ///   from the page that made the request are needed.
 /// - **Client:** Reads from `window.location.search`.
 pub fn get_query_param(name: &str) -> Option<String> {
-    #[cfg(all(feature = "browser", target_arch = "wasm32"))]
+    #[cfg(not(feature = "ssr"))]
     {
         return window().location().search().ok().and_then(|q| {
             q.trim_start_matches('?').split('&').find_map(|s| {
@@ -374,7 +374,7 @@ pub fn get_query_param(name: &str) -> Option<String> {
         });
     }
 
-    #[cfg(not(all(feature = "browser", target_arch = "wasm32")))]
+    #[cfg(feature = "ssr")]
     {
         #[cfg(feature = "ssr")]
         {
@@ -440,7 +440,7 @@ pub fn set_cookie(name: &str, value: &str, options: &str) {
             }
         }
     }
-    #[cfg(all(feature = "browser", target_arch = "wasm32"))]
+    #[cfg(not(feature = "ssr"))]
     {
         let cookie = format!("{}={}{}", name, value, options);
         let _ = js_sys::Reflect::set(
@@ -451,7 +451,7 @@ pub fn set_cookie(name: &str, value: &str, options: &str) {
     }
     #[cfg(all(
         not(feature = "ssr"),
-        not(all(feature = "browser", target_arch = "wasm32"))
+        feature = "ssr"
     ))]
     {
         mock_state::COOKIES.with(|c| {
@@ -486,9 +486,9 @@ where
     view! {
         <script type="application/json" id={script_id}
             inner_html={
-                #[cfg(not(all(feature = "browser", target_arch = "wasm32")))]
+                #[cfg(feature = "ssr")]
                 { serialize_for_injection(&T::initial()) }
-                #[cfg(all(feature = "browser", target_arch = "wasm32"))]
+                #[cfg(not(feature = "ssr"))]
                 { "" }
             }
         />
@@ -518,9 +518,9 @@ where
         {children()}
         <script type="application/json" id={script_id}
             inner_html={
-                #[cfg(not(all(feature = "browser", target_arch = "wasm32")))]
+                #[cfg(feature = "ssr")]
                 { serialize_for_injection(&T::initial()) }
-                #[cfg(all(feature = "browser", target_arch = "wasm32"))]
+                #[cfg(not(feature = "ssr"))]
                 { "" }
             }
         />

@@ -27,8 +27,7 @@ js-sys = "0.3.95"
 web-sys = { version = "0.3.72", features = ["HtmlFormElement", "FormData", "HtmlInputElement", "Event", "EventTarget"] }
 
 [features]
-hydrate = ["browser"]
-browser = [
+hydrate = [
     "leptos/hydrate",
     "dep:console_error_panic_hook",
     "leptos_hydrated/hydrate",
