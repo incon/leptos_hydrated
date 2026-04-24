@@ -14,7 +14,9 @@ documentation = "https://docs.rs/leptos_hydrated"
 
 [features]
 ssr     = ["leptos/ssr", "dep:serde_json", "dep:leptos_axum", "dep:http"]
-hydrate = ["dep:js-sys", "dep:wasm-bindgen", "dep:serde-wasm-bindgen"]
+hydrate = ["browser"]
+csr     = ["browser"]
+browser = ["dep:js-sys", "dep:wasm-bindgen", "dep:serde-wasm-bindgen"]
 
 [dependencies]
 leptos           = { version = "0.8" }

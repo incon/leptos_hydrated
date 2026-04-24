@@ -17,24 +17,14 @@
 //!    `<script>` tag embedded in the HTML.
 //! 2. On the client, deserialising that value as the signal's first frame —
 //!    no async wait, no flicker.
-//! 3. Optionally running `fetch()` after hydration to refresh with the latest
-//!    client-side state (e.g. re-reading a JS-accessible cookie). When `fetch`
-//!    is not needed, the default returns `None` and the injected value is kept.
+//! 3. After hydration, the client re-runs `initial()` to synchronize with the
+//!    current client-side state (e.g. re-reading a JS-accessible cookie).
 //!
 //! This also handles **HTTP-only cookies**: the server reads the cookie in
 //! `initial()`, injects the value, and the client never needs to touch the
 //! cookie directly.
 //!
-//! ## Two Modes
-//!
-//! | Mode | `fetch()` | Use when |
-//! |------|-----------|----------|
-//! | Injection-only | `None` (default) | Server value is the source of truth (HTTP-only cookies, session tokens) |
-//! | Injection + refresh | `Some(v)` | Client can also re-read the same state (JS-readable cookies, URL params) |
-//!
-//! ## Examples
-//!
-//! ### Injection-only (HTTP-only cookie / session)
+//! ## Example
 //!
 //! ```rust,no_run
 //! use leptos::prelude::*;
@@ -52,7 +42,6 @@
 //!         let user_id = get_cookie("user_id").and_then(|id| id.parse().ok());
 //!         SessionState { user_id }
 //!     }
-//!     // fetch() defaults to None — injected server value is kept, no refresh.
 //! }
 //!
 //! #[component]
@@ -65,31 +54,6 @@
 //! # #[component] fn Profile() -> impl IntoView { view! { "" } }
 //! ```
 //!
-//! ### Injection + client refresh (JS-readable cookie / URL param)
-//!
-//! ```rust,no_run
-//! # use leptos::prelude::*;
-//! # use leptos_hydrated::*;
-//! # use serde::{Serialize, Deserialize};
-//! #[derive(Clone, Default, serde::Serialize, serde::Deserialize, PartialEq, Debug)]
-//! struct ThemeState { theme: String }
-//!
-//! impl Hydratable for ThemeState {
-//!     fn initial() -> Self {
-//!         // Use isomorphic helpers to read from cookies/query params on both sides.
-//!         let theme = get_cookie("theme").unwrap_or_else(|| "dark".into());
-//!         ThemeState { theme }
-//!     }
-//!
-//!     fn fetch() -> impl std::future::Future<Output = Option<Self>> + Send + 'static {
-//!         // Re-read from the same client-side source after hydration.
-//!         async {
-//!             let theme = get_cookie("theme").unwrap_or_else(|| "dark".into());
-//!             Some(ThemeState { theme })
-//!         }
-//!     }
-//! }
-//! ```
 //!
 //! ### Scoped Hydration
 //!
@@ -142,25 +106,52 @@
 
 use leptos::prelude::*;
 use serde::{Serialize, de::DeserializeOwned};
-use std::future::Future;
+
+#[cfg(not(all(feature = "browser", target_arch = "wasm32")))]
+mod mock_state {
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+    thread_local! {
+        pub static COOKIES: RefCell<HashMap<String, String>> = Default::default();
+        pub static QUERY_PARAMS: RefCell<HashMap<String, String>> = Default::default();
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Helpers: type-stable DOM id, serialization, and injection reading
 // ---------------------------------------------------------------------------
 
 pub(crate) fn type_hydration_id<T: 'static>() -> String {
-    std::any::type_name::<T>()
-        .chars()
-        .map(|c| if c.is_alphanumeric() { c } else { '_' })
-        .collect()
+    let name = std::any::type_name::<T>();
+    let mut out = String::with_capacity(name.len());
+    let mut last_was_upper = false;
+
+    for (i, c) in name.chars().enumerate() {
+        if c.is_uppercase() {
+            if i > 0 && !last_was_upper {
+                out.push('_');
+            }
+            out.push(c.to_ascii_lowercase());
+            last_was_upper = true;
+        } else if c.is_alphanumeric() {
+            out.push(c);
+            last_was_upper = false;
+        } else {
+            if !out.ends_with('_') {
+                out.push('_');
+            }
+            last_was_upper = true;
+        }
+    }
+    out
 }
 
-#[cfg(feature = "ssr")]
+#[cfg(not(all(feature = "browser", target_arch = "wasm32")))]
 pub(crate) fn serialize_for_injection<T: Serialize>(value: &T) -> String {
-    serde_json::to_string(value).unwrap_or_default()
+    leptos::serde_json::to_string(value).unwrap_or_default()
 }
 
-#[cfg(all(not(feature = "ssr"), feature = "hydrate"))]
+#[cfg(all(feature = "browser", target_arch = "wasm32"))]
 fn read_injected_state<T: DeserializeOwned>(id: &str) -> Option<T> {
     use js_sys::JSON;
     use wasm_bindgen::JsCast as _;
@@ -195,18 +186,13 @@ pub trait Hydratable:
     ///
     /// - On SSR: read from HTTP request headers/URI. The result is serialised
     ///   into the HTML so the client never needs to re-compute it.
-    /// - On client: used as a fallback when no injected value is found (CSR-only).
+    /// - On client: used as a fallback when no injected value is found (CSR-only),
+    ///   and re-run after hydration to synchronise with the client-side state.
     fn initial() -> Self;
 
-    /// Optional async client-side refresh after hydration.
-    ///
-    /// - `None` (default): keep the injected server value. No network call.
-    ///   Ideal for HTTP-only cookies and session tokens.
-    /// - `Some(v)`: update the signal with `v` after hydration.
-    ///   Use when the client can re-read the same state (JS cookies, URL params).
-    fn fetch() -> impl Future<Output = Option<Self>> + Send + 'static {
-        async { None }
-    }
+    /// Optional hook called on the client after the signal is created and hydrated.
+    #[cfg(feature = "browser")]
+    fn on_hydrate(&self, _signal: RwSignal<Self>) {}
 }
 
 // ---------------------------------------------------------------------------
@@ -223,42 +209,50 @@ pub struct HydratedSignal<T: 'static>(pub RwSignal<T>);
 
 /// The core hook for creating a hydrated signal.
 ///
-/// `ssr_value` is the synchronous initial value. `fetcher` returns
-/// `Option<Result<T, E>>`:
-/// - `None`        → no update after initial hydration
-/// - `Some(Ok(v))` → signal is updated to `v`
-/// - `Some(Err(_))` → signal retains its current value
+/// This hook automatically manages signal hydration from a `LocalResource`
+/// that calls `T::initial()`.
 ///
-/// Returns `(RwSignal<T>, Resource<Option<T>>)`.
-pub fn use_hydrate_signal<T, Fut>(
-    ssr_value: impl Fn() -> T + 'static,
-    fetcher: impl Fn() -> Fut + Clone + Send + Sync + 'static,
-) -> (RwSignal<T>, LocalResource<Option<T>>)
+/// Returns `(RwSignal<T>, LocalResource<Option<T>>)`
+pub fn use_hydrate_signal<T>() -> (RwSignal<T>, LocalResource<Option<T>>)
 where
-    T: Clone + Serialize + DeserializeOwned + Default + Send + Sync + PartialEq + 'static,
-    Fut: Future<Output = Option<T>> + Send + 'static,
+    T: Hydratable + PartialEq,
 {
-    let initial_val = ssr_value();
-    let signal = RwSignal::new(initial_val);
+    #[cfg(all(feature = "browser", target_arch = "wasm32"))]
+    let (initial_val, is_injected) = {
+        let id = type_hydration_id::<T>();
+        let injected = read_injected_state::<T>(&id);
+        let is_inj = injected.is_some();
+        (injected.unwrap_or_else(T::initial), is_inj)
+    };
+
+    #[cfg(not(all(feature = "browser", target_arch = "wasm32")))]
+    let (initial_val, is_injected) = (T::initial(), false);
+
+    let signal = RwSignal::new(initial_val.clone());
     let first_run = StoredValue::new(true);
 
     let resource = LocalResource::new(move || {
         let current_val = signal.get();
         let is_first = first_run.get_value();
-        let fetcher = fetcher.clone();
 
         async move {
             if is_first {
                 first_run.set_value(false);
-                let f = fetcher();
-                f.await
+                if !is_injected {
+                    Some(T::initial())
+                } else {
+                    Some(current_val)
+                }
             } else {
                 Some(current_val)
             }
         }
     });
 
-    #[cfg(not(feature = "ssr"))]
+    #[cfg(all(
+        not(feature = "ssr"),
+        any(all(feature = "browser", target_arch = "wasm32"), not(test))
+    ))]
     {
         let resource_cloned = resource.clone();
         leptos::task::spawn_local(async move {
@@ -268,17 +262,12 @@ where
         });
     }
 
-    (signal, resource)
-}
+    #[cfg(feature = "browser")]
+    {
+        initial_val.on_hydrate(signal);
+    }
 
-/// Reads the raw JSON string from the injected script tag on the client.
-/// Used to prevent hydration mismatches by ensuring the client-side view matches the SSR view.
-#[cfg(all(not(feature = "ssr"), feature = "hydrate"))]
-fn read_raw_injected_state(id: &str) -> Option<String> {
-    let script_id = format!("__lh_{}", id);
-    document()
-        .get_element_by_id(&script_id)
-        .and_then(|el| el.text_content())
+    (signal, resource)
 }
 
 // ---------------------------------------------------------------------------
@@ -290,45 +279,47 @@ fn read_raw_injected_state(id: &str) -> Option<String> {
 /// - **SSR:** Reads from `http::request::Parts` (requires server setup with `leptos_routes_with_context`).
 /// - **Client:** Reads from `document.cookie`.
 pub fn get_cookie(name: &str) -> Option<String> {
-    #[cfg(feature = "ssr")]
-    {
-        use http::header::COOKIE;
-        use http::request::Parts;
-        use leptos::prelude::use_context;
-
-        use_context::<Parts>().and_then(|parts| {
-            parts
-                .headers
-                .get(COOKIE)
-                .and_then(|h| h.to_str().ok())
-                .and_then(|cookies| {
-                    cookies.split("; ").find_map(|s| {
-                        let mut parts = s.splitn(2, '=');
-                        let k = parts.next()?.trim();
-                        let v = parts.next()?.trim();
-                        if k == name { Some(v.to_string()) } else { None }
-                    })
-                })
-        })
-    }
-    #[cfg(all(not(feature = "ssr"), feature = "hydrate"))]
+    #[cfg(all(feature = "browser", target_arch = "wasm32"))]
     {
         let cookies = js_sys::Reflect::get(&document(), &wasm_bindgen::JsValue::from_str("cookie"))
             .ok()
             .and_then(|v| v.as_string())
             .unwrap_or_default();
 
-        cookies.split("; ").find_map(|s: &str| {
+        return cookies.split("; ").find_map(|s| {
             let mut parts = s.splitn(2, '=');
             let k = parts.next()?.trim();
             let v = parts.next()?.trim();
             if k == name { Some(v.to_string()) } else { None }
-        })
+        });
     }
-    #[cfg(all(not(feature = "ssr"), not(feature = "hydrate")))]
+
+    #[cfg(not(all(feature = "browser", target_arch = "wasm32")))]
     {
-        let _ = name;
-        None
+        #[cfg(feature = "ssr")]
+        {
+            use http::header::COOKIE;
+            use http::request::Parts;
+            use leptos::prelude::use_context;
+
+            if let Some(val) = use_context::<Parts>().and_then(|parts| {
+                parts
+                    .headers
+                    .get(COOKIE)
+                    .and_then(|h| h.to_str().ok())
+                    .and_then(|cookies| {
+                        cookies.split("; ").find_map(|s| {
+                            let mut parts = s.splitn(2, '=');
+                            let k = parts.next()?.trim();
+                            let v = parts.next()?.trim();
+                            if k == name { Some(v.to_string()) } else { None }
+                        })
+                    })
+            }) {
+                return Some(val);
+            }
+        }
+        mock_state::COOKIES.with(|c| c.borrow().get(name).cloned())
     }
 }
 
@@ -343,62 +334,60 @@ pub fn get_cookie(name: &str) -> Option<String> {
 ///   from the page that made the request are needed.
 /// - **Client:** Reads from `window.location.search`.
 pub fn get_query_param(name: &str) -> Option<String> {
-    #[cfg(feature = "ssr")]
+    #[cfg(all(feature = "browser", target_arch = "wasm32"))]
     {
-        use http::header::REFERER;
-        use http::request::Parts;
-        use leptos::prelude::use_context;
-
-        use_context::<Parts>().and_then(|parts| {
-            // 1. Try current URI query
-            let direct = parts.uri.query().and_then(|q| {
-                q.split('&').find_map(|s| {
-                    let mut parts = s.splitn(2, '=');
-                    let k = parts.next()?.trim();
-                    let v = parts.next()?.trim();
-                    if k == name { Some(v.to_string()) } else { None }
-                })
-            });
-
-            if direct.is_some() {
-                return direct;
-            }
-
-            // 2. Fall back to Referer query
-            parts
-                .headers
-                .get(REFERER)
-                .and_then(|h| h.to_str().ok())
-                .and_then(|referer| {
-                    let query = referer.split('?').nth(1)?;
-                    query.split('&').find_map(|s| {
-                        let mut p = s.splitn(2, '=');
-                        let k = p.next()?.trim();
-                        let v = p.next()?.trim();
-                        if k == name { Some(v.to_string()) } else { None }
-                    })
-                })
-        })
-    }
-    #[cfg(all(not(feature = "ssr"), feature = "hydrate"))]
-    {
-        window().location().search().ok().and_then(|search| {
-            if search.is_empty() {
-                return None;
-            }
-            let query = search.trim_start_matches('?');
-            query.split('&').find_map(|s: &str| {
+        return window().location().search().ok().and_then(|q| {
+            q.trim_start_matches('?').split('&').find_map(|s| {
                 let mut parts = s.splitn(2, '=');
                 let k = parts.next()?.trim();
                 let v = parts.next()?.trim();
                 if k == name { Some(v.to_string()) } else { None }
             })
-        })
+        });
     }
-    #[cfg(all(not(feature = "ssr"), not(feature = "hydrate")))]
+
+    #[cfg(not(all(feature = "browser", target_arch = "wasm32")))]
     {
-        let _ = name;
-        None
+        #[cfg(feature = "ssr")]
+        {
+            use http::header::REFERER;
+            use http::request::Parts;
+            use leptos::prelude::use_context;
+
+            if let Some(val) = use_context::<Parts>().and_then(|parts| {
+                // 1. Try current URI query
+                let direct = parts.uri.query().and_then(|q| {
+                    q.split('&').find_map(|s| {
+                        let mut parts = s.splitn(2, '=');
+                        let k = parts.next()?.trim();
+                        let v = parts.next()?.trim();
+                        if k == name { Some(v.to_string()) } else { None }
+                    })
+                });
+
+                if direct.is_some() {
+                    return direct;
+                }
+
+                // 2. Fall back to Referer query
+                parts
+                    .headers
+                    .get(REFERER)
+                    .and_then(|h| h.to_str().ok())
+                    .and_then(|referer| {
+                        let query = referer.split('?').nth(1)?;
+                        query.split('&').find_map(|s| {
+                            let mut p = s.splitn(2, '=');
+                            let k = p.next()?.trim();
+                            let v = p.next()?.trim();
+                            if k == name { Some(v.to_string()) } else { None }
+                        })
+                    })
+            }) {
+                return Some(val);
+            }
+        }
+        mock_state::QUERY_PARAMS.with(|q| q.borrow().get(name).cloned())
     }
 }
 
@@ -423,7 +412,7 @@ pub fn set_cookie(name: &str, value: &str, options: &str) {
             }
         }
     }
-    #[cfg(all(not(feature = "ssr"), feature = "hydrate"))]
+    #[cfg(all(feature = "browser", target_arch = "wasm32"))]
     {
         let cookie = format!("{}={}{}", name, value, options);
         let _ = js_sys::Reflect::set(
@@ -432,9 +421,15 @@ pub fn set_cookie(name: &str, value: &str, options: &str) {
             &wasm_bindgen::JsValue::from_str(&cookie),
         );
     }
-    #[cfg(all(not(feature = "ssr"), not(feature = "hydrate")))]
+    #[cfg(all(
+        not(feature = "ssr"),
+        not(all(feature = "browser", target_arch = "wasm32"))
+    ))]
     {
-        let _ = (name, value, options);
+        mock_state::COOKIES.with(|c| {
+            c.borrow_mut().insert(name.to_string(), value.to_string());
+        });
+        let _ = options;
     }
 }
 
@@ -449,50 +444,26 @@ pub fn set_cookie(name: &str, value: &str, options: &str) {
 /// both SSR and client to keep the DOM structure identical for hydration.
 /// Use `use_hydrated::<T>()` in any descendant to access the signal.
 #[component]
-pub fn HydrateState<T>(#[prop(optional)] marker: std::marker::PhantomData<T>) -> impl IntoView
+pub fn HydrateState<T>(#[prop(optional)] _marker: std::marker::PhantomData<T>) -> impl IntoView
 where
     T: Hydratable + PartialEq,
 {
-    let _ = marker;
-    let id = type_hydration_id::<T>();
-    let script_id = format!("__lh_{}", id);
-
-    // 1. Online SSR Mode
-    // The server generates the initial value and serialises it for injection.
-    #[cfg(feature = "ssr")]
-    let (initial_val, json) = {
-        let val = T::initial();
-        let json_str = serialize_for_injection(&val);
-        (val, json_str)
-    };
-
-    // 2. Client Hydration Mode (Offline PWA capable)
-    // The client expects a DOM. It tries to read it, but falls back to T::initial() if offline.
-    #[cfg(all(not(feature = "ssr"), feature = "hydrate"))]
-    let (initial_val, json) = {
-        let val = read_injected_state::<T>(&id).unwrap_or_else(T::initial);
-        let json_str = read_raw_injected_state(&id).unwrap_or_default();
-        (val, json_str)
-    };
-
-    // 3. Pure CSR Mode
-    // The client knows no server HTML exists. It skips the DOM entirely and goes straight to fallback.
-    #[cfg(all(not(feature = "ssr"), not(feature = "hydrate")))]
-    let (initial_val, json) = {
-        let val = T::initial();
-        let json_str = String::new();
-        (val, json_str)
-    };
-
-    let cloned = initial_val.clone();
-    let (signal, resource) = use_hydrate_signal(move || cloned.clone(), || T::fetch());
+    let (signal, resource) = use_hydrate_signal::<T>();
     provide_context(HydratedSignal(signal));
     provide_context(resource);
 
-    // Script tag rendered on BOTH sides to ensure the same DOM node count for hydration.
-    // Content is populated on SSR; empty on client (already read above).
+    let id = type_hydration_id::<T>();
+    let script_id = format!("__lh_{}", id);
+
     view! {
-        <script type="application/json" id={script_id} inner_html={json} />
+        <script type="application/json" id={script_id}
+            inner_html={
+                #[cfg(not(all(feature = "browser", target_arch = "wasm32")))]
+                { serialize_for_injection(&T::initial()) }
+                #[cfg(all(feature = "browser", target_arch = "wasm32"))]
+                { "" }
+            }
+        />
     }
 }
 
@@ -503,44 +474,28 @@ where
 #[component]
 pub fn HydrateContext<T>(
     children: Children,
-    #[prop(optional)] marker: std::marker::PhantomData<T>,
+    #[prop(optional)] _marker: std::marker::PhantomData<T>,
 ) -> impl IntoView
 where
     T: Hydratable + PartialEq,
 {
-    let _ = marker;
-    let id = type_hydration_id::<T>();
-    let script_id = format!("__lh_{}", id);
-
-    #[cfg(feature = "ssr")]
-    let (initial_val, json) = {
-        let val = T::initial();
-        let json_str = serialize_for_injection(&val);
-        (val, json_str)
-    };
-
-    #[cfg(all(not(feature = "ssr"), feature = "hydrate"))]
-    let (initial_val, json) = {
-        let val = read_injected_state::<T>(&id).unwrap_or_else(T::initial);
-        let json_str = read_raw_injected_state(&id).unwrap_or_default();
-        (val, json_str)
-    };
-
-    #[cfg(all(not(feature = "ssr"), not(feature = "hydrate")))]
-    let (initial_val, json) = {
-        let val = T::initial();
-        let json_str = String::new();
-        (val, json_str)
-    };
-
-    let cloned = initial_val.clone();
-    let (signal, resource) = use_hydrate_signal(move || cloned.clone(), || T::fetch());
+    let (signal, resource) = use_hydrate_signal::<T>();
     provide_context(HydratedSignal(signal));
     provide_context(resource);
 
+    let id = type_hydration_id::<T>();
+    let script_id = format!("__lh_{}", id);
+
     view! {
         {children()}
-        <script type="application/json" id={script_id} inner_html={json} />
+        <script type="application/json" id={script_id}
+            inner_html={
+                #[cfg(not(all(feature = "browser", target_arch = "wasm32")))]
+                { serialize_for_injection(&T::initial()) }
+                #[cfg(all(feature = "browser", target_arch = "wasm32"))]
+                { "" }
+            }
+        />
     }
 }
 

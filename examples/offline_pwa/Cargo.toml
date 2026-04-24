@@ -26,14 +26,17 @@ web-sys = { version = "0.3", features = [
     "IdbFactory", "IdbDatabase", "IdbObjectStore", "IdbTransaction", 
     "IdbRequest", "IdbOpenDbRequest", "Window", "Navigator", 
     "ServiceWorkerContainer", "IdbCursor", "IdbCursorWithValue",
-    "IdbTransactionMode", "DomStringList"
+    "IdbTransactionMode", "DomStringList", "Storage", "History", "Location"
 ] }
 
 [features]
-hydrate = [
+hydrate = ["browser"]
+csr     = ["browser"]
+browser = [
     "leptos/hydrate",
     "dep:console_error_panic_hook",
     "dep:wasm-bindgen",
+    "dep:serde_json",
     "leptos_hydrated/hydrate",
 ]
 ssr = [

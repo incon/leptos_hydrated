@@ -56,9 +56,6 @@ impl Hydratable for ProfileState {
     fn initial() -> Self {
         read_profile_state()
     }
-    async fn fetch() -> Option<Self> {
-        fetch_profile_state().await.ok()
-    }
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]

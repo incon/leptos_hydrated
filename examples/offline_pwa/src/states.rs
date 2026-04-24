@@ -1,4 +1,4 @@
-use crate::db;
+use leptos::prelude::*;
 use leptos_hydrated::*;
 use serde::{Deserialize, Serialize};
 
@@ -17,27 +17,25 @@ pub struct TodoState {
 
 impl Hydratable for TodoState {
     fn initial() -> Self {
-        // Initial state is empty on server (or you could use cookies)
-        Self::default()
-    }
-
-    fn fetch() -> impl std::future::Future<Output = Option<Self>> + Send + 'static {
-        // On client, try to restore from IndexedDB
-        async {
-            leptos::logging::log!("IDB: Fetching todos state...");
-            match db::get_item("todos").await {
+        #[cfg(feature = "ssr")]
+        {
+            // Initial state is empty on server (or you could use cookies)
+            Self::default()
+        }
+        #[cfg(not(feature = "ssr"))]
+        {
+            // On client, try to restore from localStorage (sync)
+            leptos::logging::log!("LocalStorage: Restoring todos state...");
+            let window = web_sys::window().unwrap();
+            let storage = window.local_storage().unwrap().unwrap();
+            match storage.get_item("todos") {
                 Ok(Some(json)) => {
-                    leptos::logging::log!("IDB: Fetched JSON: {}", json);
-                    let js_val = js_sys::JSON::parse(&json).ok();
-                    js_val.and_then(|v| serde_wasm_bindgen::from_value(v).ok())
+                    leptos::logging::log!("LocalStorage: Fetched JSON: {}", json);
+                    serde_json::from_str(&json).unwrap_or_default()
                 }
-                Ok(None) => {
-                    leptos::logging::log!("IDB: No todos found.");
-                    None
-                }
-                Err(e) => {
-                    leptos::logging::log!("IDB: Fetch error: {:?}", e);
-                    None
+                _ => {
+                    leptos::logging::log!("LocalStorage: No todos found.");
+                    Self::default()
                 }
             }
         }
@@ -57,6 +55,61 @@ impl Default for OnlineState {
 
 impl Hydratable for OnlineState {
     fn initial() -> Self {
-        Self { online: get_cookie("online_status").is_none_or(|v| v == "true") }
+        #[cfg(feature = "ssr")]
+        {
+            Self {
+                online: get_cookie("online_status").map_or(true, |v| v == "true"),
+            }
+        }
+        #[cfg(feature = "browser")]
+        {
+            let window = web_sys::window().unwrap();
+            Self {
+                online: window.navigator().on_line(),
+            }
+        }
+    }
+
+    #[cfg(feature = "browser")]
+    fn on_hydrate(&self, online_state: RwSignal<Self>) {
+        use leptos::ev;
+        let window = web_sys::window().unwrap();
+        let current_online = window.navigator().on_line();
+
+        leptos::prelude::Effect::new(move |_| {
+            leptos::logging::log!("OnlineState: Hydrated, setting up listeners...");
+
+            // 1. Initial client-side sync
+            if current_online != online_state.get_untracked().online {
+                online_state.set(OnlineState {
+                    online: current_online,
+                });
+                set_cookie(
+                    "online_status",
+                    if current_online { "true" } else { "false" },
+                    "; path=/; max-age=31536000; SameSite=Lax",
+                );
+            }
+
+            // 2. Setup permanent event listeners
+            std::mem::forget(window_event_listener(ev::online, move |_| {
+                leptos::logging::log!("OnlineState: online event");
+                online_state.set(OnlineState { online: true });
+                set_cookie(
+                    "online_status",
+                    "true",
+                    "; path=/; max-age=31536000; SameSite=Lax",
+                );
+            }));
+            std::mem::forget(window_event_listener(ev::offline, move |_| {
+                leptos::logging::log!("OnlineState: offline event");
+                online_state.set(OnlineState { online: false });
+                set_cookie(
+                    "online_status",
+                    "false",
+                    "; path=/; max-age=31536000; SameSite=Lax",
+                );
+            }));
+        });
     }
 }

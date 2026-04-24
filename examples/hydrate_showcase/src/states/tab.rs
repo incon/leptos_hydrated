@@ -1,4 +1,3 @@
-use leptos::prelude::*;
 use leptos_hydrated::*;
 use serde::{Deserialize, Serialize};
 
@@ -7,22 +6,6 @@ pub struct TabState(pub String);
 
 impl Hydratable for TabState {
     fn initial() -> Self {
-        read_tab_state()
+        TabState(get_query_param("tab").unwrap_or_else(|| "cookie".into()))
     }
-    async fn fetch() -> Option<Self> {
-        fetch_tab_state().await.ok()
-    }
-}
-
-pub fn read_tab_state() -> TabState {
-    TabState(get_query_param("tab").unwrap_or_else(|| "cookie".into()))
-}
-
-#[server]
-pub async fn fetch_tab_state() -> Result<TabState, ServerFnError> {
-    let mut state = read_tab_state();
-    if let Some(tab) = get_query_param("tab") {
-        state.0 = tab;
-    }
-    Ok(state)
 }

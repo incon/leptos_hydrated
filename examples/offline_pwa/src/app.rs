@@ -1,5 +1,3 @@
-#[cfg(not(feature = "ssr"))]
-use crate::db;
 use crate::states::*;
 use leptos::either::Either;
 use leptos::prelude::*;
@@ -70,17 +68,12 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
     }
 }
 
-#[derive(Copy, Clone)]
-pub struct OnlineContext {
-    pub online: RwSignal<OnlineState>,
-}
-
 #[component]
 pub fn App() -> impl IntoView {
     provide_meta_context();
 
     view! {
-        <OnlineProvider>
+        <HydrateContext<OnlineState>>
             <div id="app-root">
                 <OnlineStatus />
                 <div class="app-container">
@@ -97,71 +90,13 @@ pub fn App() -> impl IntoView {
                     </HydrateContext<TodoState>>
                 </div>
             </div>
-        </OnlineProvider>
-    }
-}
-
-#[component]
-fn OnlineProvider(children: Children) -> impl IntoView {
-    view! {
-        <HydrateContext<OnlineState>>
-            <OnlineManager>
-                {children()}
-            </OnlineManager>
         </HydrateContext<OnlineState>>
     }
 }
 
 #[component]
-fn OnlineManager(children: Children) -> impl IntoView {
-    let online_state = use_hydrated::<OnlineState>();
-    provide_context(OnlineContext {
-        online: online_state,
-    });
-
-    #[cfg(not(feature = "ssr"))]
-    {
-        use leptos::ev;
-
-        // Initial client-side sync: ensure the state reflects actual navigator status
-        let current_online = web_sys::window().unwrap().navigator().on_line();
-        if current_online != online_state.get_untracked().online {
-            online_state.set(OnlineState {
-                online: current_online,
-            });
-            set_cookie(
-                "online_status",
-                if current_online { "true" } else { "false" },
-                "; path=/; max-age=31536000; SameSite=Lax",
-            );
-        }
-
-        std::mem::forget(window_event_listener(ev::online, move |_| {
-            online_state.set(OnlineState { online: true });
-            set_cookie(
-                "online_status",
-                "true",
-                "; path=/; max-age=31536000; SameSite=Lax",
-            );
-        }));
-        std::mem::forget(window_event_listener(ev::offline, move |_| {
-            online_state.set(OnlineState { online: false });
-            set_cookie(
-                "online_status",
-                "false",
-                "; path=/; max-age=31536000; SameSite=Lax",
-            );
-        }));
-    }
-
-    children()
-}
-
-#[component]
 fn OnlineStatus() -> impl IntoView {
-    let online = use_context::<OnlineContext>()
-        .map(|ctx| ctx.online)
-        .unwrap_or_else(|| RwSignal::new(OnlineState::default()));
+    let online = use_hydrated::<OnlineState>();
 
     view! {
         <div id="online-status" class=move || format!("status-banner {}", if online.get().online { "online" } else { "offline" })>
@@ -175,25 +110,14 @@ fn OnlineStatus() -> impl IntoView {
 fn TodoPersistence() -> impl IntoView {
     #[cfg(not(feature = "ssr"))]
     Effect::new(move |_| {
-        let resource = use_hydrated_resource::<TodoState>();
-
-        // Wait for hydration to finish before we start persisting changes
-        if resource.get().is_none() {
-            return;
-        }
-
         let state = use_hydrated::<TodoState>();
         let current = state.get();
 
-        leptos::task::spawn_local(async move {
-            if let Ok(js_val) = serde_wasm_bindgen::to_value(&current) {
-                if let Ok(json) = js_sys::JSON::stringify(&js_val) {
-                    if let Some(json) = json.as_string() {
-                        let _ = db::set_item("todos", &json).await;
-                    }
-                }
-            }
-        });
+        if let Ok(json) = serde_json::to_string(&current) {
+            let window = web_sys::window().unwrap();
+            let storage = window.local_storage().unwrap().unwrap();
+            let _ = storage.set_item("todos", &json);
+        }
     });
 
     view! { "" }
