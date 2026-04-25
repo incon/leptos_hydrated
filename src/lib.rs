@@ -308,7 +308,7 @@ where
         });
     }
 
-    #[cfg(any(feature = "hydrate", feature = "csr"))]
+    #[cfg(not(feature = "ssr"))]
     {
         initial_val.on_hydrate(signal);
     }

@@ -184,17 +184,16 @@ impl Hydratable for OnlineState {
         }
     }
 
+    #[cfg(not(feature = "ssr"))]
     fn on_hydrate(&self, state: RwSignal<Self>) {
         // Set up browser-only event listeners to keep state in sync
-        client_only! {
-            use leptos::ev;
-            let _ = use_event_listener(web_sys::window(), ev::online, move |_| {
-                state.update(|s| s.online = true);
-            });
-            let _ = use_event_listener(web_sys::window(), ev::offline, move |_| {
-                state.update(|s| s.online = false);
-            });
-        }
+        use leptos::ev;
+        let _ = use_event_listener(web_sys::window(), ev::online, move |_| {
+            state.update(|s| s.online = true);
+        });
+        let _ = use_event_listener(web_sys::window(), ev::offline, move |_| {
+            state.update(|s| s.online = false);
+        });
     }
 }
 ```

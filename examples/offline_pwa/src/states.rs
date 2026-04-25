@@ -77,6 +77,7 @@ impl Hydratable for OnlineState {
     #[cfg(not(feature = "ssr"))]
     fn on_hydrate(&self, online_state: RwSignal<Self>) {
         use leptos::ev;
+        use leptos_use::use_event_listener;
 
         let _ = use_event_listener(web_sys::window(), ev::online, move |_| {
             online_state.update(|s| s.online = true);
