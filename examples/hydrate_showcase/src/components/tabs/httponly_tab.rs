@@ -2,7 +2,6 @@ use crate::components::TabPanel;
 use crate::states::{LoginSecure, LogoutSecure, SecureUserData};
 use leptos::form::ActionForm;
 use leptos::prelude::*;
-use leptos_hydrated::client_only;
 use leptos_hydrated::*;
 
 #[component]
@@ -11,13 +10,17 @@ pub fn HttpOnlyTab(tab: &'static str) -> impl IntoView {
     let login_action = ServerAction::<LoginSecure>::new();
     let logout_action = ServerAction::<LogoutSecure>::new();
 
-    // Reload the page after login/logout to see the HTTP-only cookie in action
+    // Update secure state reactively when login completes
     Effect::new(move |_| {
-        if login_action.value().get().is_some() || logout_action.value().get().is_some() {
-            client_only! {
-                use leptos::prelude::window;
-                let _ = window().location().reload();
-            };
+        if let Some(Ok(new_data)) = login_action.value().get() {
+            secure_state.set(new_data);
+        }
+    });
+
+    // Update secure state reactively when logout completes
+    Effect::new(move |_| {
+        if let Some(Ok(new_data)) = logout_action.value().get() {
+            secure_state.set(new_data);
         }
     });
 
@@ -31,9 +34,8 @@ pub fn HttpOnlyTab(tab: &'static str) -> impl IntoView {
                 </p>
 
                 <div class="secure-box">
-                    {move || {
-                        let state = secure_state.get();
-                        if state.tier != "Guest" {
+                    {move || match secure_state.get().0 {
+                        Some(state) => {
                             view! {
                                 <div class="token-display">
                                     <div class="status-container">
@@ -51,7 +53,8 @@ pub fn HttpOnlyTab(tab: &'static str) -> impl IntoView {
                                     </ActionForm>
                                 </div>
                             }.into_any()
-                        } else {
+                        },
+                        None => {
                             view! {
                                 <div class="login-prompt">
                                     <p>"No secure session active. Your balance is protected by HTTP-only cookies."</p>

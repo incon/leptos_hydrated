@@ -1,12 +1,9 @@
+use crate::components::*;
+use crate::states::*;
 use leptos::prelude::*;
 use leptos_hydrated::*;
 use leptos_meta::{MetaTags, Stylesheet, Title, provide_meta_context};
 use leptos_router::{StaticSegment, components::*};
-
-use crate::components::*;
-use crate::states::*;
-
-
 
 pub fn shell(options: LeptosOptions) -> impl IntoView {
     view! {
@@ -54,7 +51,6 @@ pub fn App() -> impl IntoView {
         </div>
     }
 }
-
 
 #[component]
 fn HomePage() -> impl IntoView {

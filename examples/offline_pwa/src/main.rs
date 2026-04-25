@@ -22,10 +22,17 @@ async fn main() {
         .route("/sw.js", get(sw_handler))
         .route("/manifest.json", get(manifest_handler))
         .route("/offline.html", get(offline_handler))
-        .leptos_routes(&leptos_options, routes, {
-            let leptos_options = leptos_options.clone();
-            move || shell(leptos_options.clone())
-        })
+        .leptos_routes_with_context(
+            &leptos_options,
+            routes,
+            || {
+                leptos_hydrated::provide_hydration_context();
+            },
+            {
+                let leptos_options = leptos_options.clone();
+                move || shell(leptos_options.clone())
+            },
+        )
         .fallback(leptos_axum::file_and_error_handler(shell))
         .with_state(leptos_options);
 

@@ -1,7 +1,9 @@
 #![allow(unused_imports)]
 use leptos::context::use_context;
 use leptos::prelude::{RwSignal, Update};
-use leptos_hydrated::hydrated;
+#[cfg(not(feature = "ssr"))]
+use leptos_hydrated::get_injected_state;
+use leptos_hydrated::isomorphic;
 use leptos_hydrated::*;
 use serde::{Deserialize, Serialize};
 
@@ -23,26 +25,28 @@ pub struct TodoState {
 
 impl Hydratable for TodoState {
     fn initial() -> Self {
-        hydrated! {
+        isomorphic! {
             server => Self::default(),
             client => {
+                // Check if the server sent any state (e.g. from a shared link)
+                #[cfg(not(feature = "ssr"))]
+                let from_server = get_injected_state::<Self>();
+                #[cfg(feature = "ssr")]
+                let from_server: Option<Self> = None;
+
                 // On client, try to restore from localStorage (sync)
                 leptos::logging::log!("LocalStorage: Restoring todos state...");
-                let window = web_sys::window().unwrap();
-                let storage = window.local_storage().unwrap().unwrap();
-                match storage.get_item("todos") {
-                    Ok(Some(json)) => {
-                        leptos::logging::log!("LocalStorage: Fetched JSON: {}", json);
-                        js_sys::JSON::parse(&json)
-                            .ok()
-                            .and_then(|js_val| serde_wasm_bindgen::from_value(js_val).ok())
-                            .unwrap_or_default()
-                    }
-                    _ => {
-                        leptos::logging::log!("LocalStorage: No todos found.");
-                        Self::default()
-                    }
-                }
+                let storage_val = (|| {
+                    let window = web_sys::window()?;
+                    let storage = window.local_storage().ok()??;
+                    let json = storage.get_item("todos").ok()??;
+
+                    js_sys::JSON::parse(&json)
+                        .ok()
+                        .and_then(|js_val| serde_wasm_bindgen::from_value(js_val).ok())
+                })();
+
+                storage_val.or(from_server).unwrap_or_default()
             }
         }
     }

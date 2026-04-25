@@ -1,6 +1,6 @@
 # Leptos Hydrated
 
-A lightweight library for **flicker-free interactive state hydration** in [Leptos 0.8](https://leptos.dev/) that works with or without JavaScript.
+A lightweight library for **flicker-free interactive state hydration** in [Leptos 0.8](https://leptos.dev/) that is specifically designed to work with `leptos_axum`.
 
 ## Features
 
@@ -50,8 +50,15 @@ impl Hydratable for ThemeState {
         ThemeState { theme }
     }
 
+    #[cfg(not(feature = "ssr"))]
     fn on_hydrate(&self, state: RwSignal<Self>) {
         // Optional: Do something in the browser after hydration
+    }
+
+    #[cfg(not(feature = "ssr"))]
+    fn should_sync_on_client() -> bool {
+        // Optional: Opt-out of client-side synchronization
+        true
     }
 }
 ```
@@ -102,7 +109,8 @@ fn ProfileSection() -> impl IntoView {
 
 `leptos_hydrated` provides macros to simplify environment-gated code:
 
-- **`hydrated! { server => ..., client => ... }`**: A concise way to branch between SSR and browser logic.
+- **`isomorphic! { server => ..., client => ... }`**: A concise way to branch between SSR and browser logic.
+- **`get_injected_state<T>()`**: Allows the client to inspect the value originally sent by the server for state merging.
 - **`server_only! { ... }`**: Executes code only on the server. Returns `()` in the browser.
 - **`client_only! { ... }`**: Executes code only in the browser. Returns `()` on the server.
 - **`is_server()`**: Returns `true` if running on the server.
@@ -178,7 +186,7 @@ impl Hydratable for OnlineState {
             .map(|c| c.was_hydrated)
             .unwrap_or(true);
 
-        hydrated! {
+        isomorphic! {
             server => Self { online: true },
             client => Self { online: was_hydrated }
         }
@@ -200,7 +208,7 @@ impl Hydratable for OnlineState {
 
 ## Server-Side Setup
 
-In order for the isomorphic helpers to access request data on the server, you **must** use `.leptos_routes_with_context` in your Axum server setup. This provides the `http::request::Parts` and `leptos_axum::ResponseOptions` to the Leptos context.
+In order for the isomorphic helpers to access request data on the server, you **must** use `.leptos_routes_with_context` in your Axum server setup and call `provide_hydration_context()`. This initializes the request-scoped store for cookies and query parameters.
 
 ```rust
 // src/main.rs (Server)
@@ -208,7 +216,10 @@ let app: Router = Router::new()
     .leptos_routes_with_context(
         &leptos_options,
         routes,
-        || {}, // Additional context providers
+        || {
+            // This initializes the hydration store from the current request
+            leptos_hydrated::provide_hydration_context();
+        },
         move || shell(),
     )
     .with_state(leptos_options);

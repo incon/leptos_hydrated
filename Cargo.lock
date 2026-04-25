@@ -1284,7 +1284,9 @@ dependencies = [
  "serde",
  "serde-wasm-bindgen",
  "serde_json",
+ "serde_urlencoded",
  "tokio",
+ "urlencoding",
  "wasm-bindgen",
  "web-sys",
 ]

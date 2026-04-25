@@ -1,13 +1,14 @@
-use leptos::prelude::*;
+use crate::components::{TabPanel, UpdateProfileForm};
+use crate::states::{ProfileState, ToggleLoginServer, UpdateProfile};
 use leptos::form::ActionForm;
+use leptos::prelude::*;
 use leptos_hydrated::use_hydrated;
-use crate::states::{ProfileState, UpdateProfile, ToggleLoginServer};
-use crate::components::{UpdateProfileForm, TabPanel};
 
 #[component]
 pub fn ReactivityTab(tab: &'static str) -> impl IntoView {
     let profile_state = use_hydrated::<ProfileState>();
     let update_profile_action = ServerAction::<UpdateProfile>::new();
+    let toggle_login = ServerAction::<ToggleLoginServer>::new();
 
     // Sync the profile state when the update action succeeds
     Effect::new(move |_| {
@@ -16,6 +17,13 @@ pub fn ReactivityTab(tab: &'static str) -> impl IntoView {
                 s.is_authenticated = true;
                 s.profile = Some(new_profile);
             });
+        }
+    });
+
+    // Reload after login toggle so updated session cookie is applied
+    Effect::new(move |_| {
+        if let Some(Ok(new_state)) = toggle_login.value().get() {
+            profile_state.set(new_state);
         }
     });
 
@@ -43,7 +51,6 @@ pub fn ReactivityTab(tab: &'static str) -> impl IntoView {
                         }
                             .into_any()
                     } else {
-                        let toggle_login = ServerAction::<ToggleLoginServer>::new();
                         view! {
                             <div class="guest-state">
                                 <p>"You must be logged in to edit your profile."</p>

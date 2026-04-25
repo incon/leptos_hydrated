@@ -1,10 +1,13 @@
 use super::*;
+#[cfg(not(feature = "ssr"))]
+use crate::core::get_injected_state;
+#[cfg(feature = "ssr")]
+use crate::core::serialize_for_injection;
+#[cfg(feature = "ssr")]
+use crate::core::type_hydration_id;
+use leptos::prelude::*;
 use leptos::reactive::owner::Owner;
 use serde::{Deserialize, Serialize};
-
-// ---------------------------------------------------------------------------
-// Shared fixture
-// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // Shared fixture
@@ -388,10 +391,13 @@ async fn test_get_query_param_referer_malformed_ssr() {
 #[cfg(all(not(feature = "ssr"), not(feature = "hydrate")))]
 #[test]
 fn test_cookie_persistence_in_csr_mode() {
-    // In CSR mode (native tests), we use a mock store
-    set_cookie("csr_test", "works", "");
-    assert_eq!(get_cookie("csr_test"), Some("works".into()));
-    assert_eq!(get_cookie("missing"), None);
+    let owner = Owner::new_root(None);
+    owner.with(|| {
+        // In CSR mode (native tests), we use a mock store
+        set_cookie("csr_test", "works", "");
+        assert_eq!(get_cookie("csr_test"), Some("works".into()));
+        assert_eq!(get_cookie("missing"), None);
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -437,4 +443,184 @@ fn test_use_hydrated_resource_panics_without_context() {
     owner.with(|| {
         let _ = use_hydrated_resource::<i32>();
     });
+}
+
+// ---------------------------------------------------------------------------
+// Coverage gap: is_server / is_client
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "ssr")]
+#[test]
+fn test_is_server_true_when_ssr() {
+    assert!(crate::is_server());
+    assert!(!crate::is_client());
+}
+
+#[cfg(not(feature = "ssr"))]
+#[test]
+fn test_is_client_true_when_not_ssr() {
+    assert!(!crate::is_server());
+    assert!(crate::is_client());
+}
+
+// ---------------------------------------------------------------------------
+// Isomorphic / Environment tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_isomorphic_macro_branches_correctly() {
+    let val = isomorphic! {
+        server => "ssr",
+        client => "csr"
+    };
+    #[cfg(feature = "ssr")]
+    assert_eq!(val, "ssr");
+    #[cfg(not(feature = "ssr"))]
+    assert_eq!(val, "csr");
+}
+
+#[cfg(not(feature = "ssr"))]
+#[tokio::test]
+async fn test_get_injected_state_returns_none_when_empty() {
+    init_test_env();
+    let local = tokio::task::LocalSet::new();
+    local
+        .run_until(async {
+            let owner = Owner::new_root(None);
+            owner.with(|| {
+                // Should be None because we haven't injected anything into the "DOM" (mocked)
+                assert!(get_injected_state::<DefaultState>().is_none());
+            });
+        })
+        .await;
+}
+
+// ---------------------------------------------------------------------------
+// Coverage gap: get_query_param without Parts context (falls to mock_state)
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn test_get_query_param_no_context_returns_none() {
+    init_test_env();
+    let local = tokio::task::LocalSet::new();
+    local
+        .run_until(async {
+            let owner = Owner::new_root(None);
+            owner.with(|| {
+                // No Parts in context → falls to mock_state → empty → None
+                assert_eq!(get_query_param("anything"), None);
+            });
+        })
+        .await;
+}
+
+// ---------------------------------------------------------------------------
+// Coverage gap: set_cookie SSR path when ResponseOptions is provided
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn test_set_cookie_with_response_options_appends_header() {
+    use leptos_axum::ResponseOptions;
+
+    init_test_env();
+    let local = tokio::task::LocalSet::new();
+    local
+        .run_until(async {
+            let owner = Owner::new_root(None);
+            owner.with(|| {
+                let res_options = ResponseOptions::default();
+                provide_context(res_options.clone());
+
+                // Triggers the ResponseOptions code path (append_header)
+                // and also writes to mock_state for verification
+                set_cookie("mycookie", "myvalue", "; path=/");
+
+                // The mock_state is always written in SSR path
+                assert_eq!(get_cookie("mycookie"), Some("myvalue".into()));
+            });
+        })
+        .await;
+}
+
+// ---------------------------------------------------------------------------
+// Coverage gap: LocalResource async closure — both branches
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn test_resource_first_run_returns_initial() {
+    init_test_env();
+    let local = tokio::task::LocalSet::new();
+    local
+        .run_until(async {
+            let owner = Owner::new_root(None);
+            owner.with(|| {
+                // On first poll the resource re-runs initial(), which is 100 for FetchState
+                let (signal, resource) = use_hydrate_signal::<FetchState>();
+                assert_eq!(signal.get_untracked().value, 100);
+                // Resource hasn't resolved yet (SSR LocalResource is lazy)
+                assert!(resource.get_untracked().is_none());
+            });
+        })
+        .await;
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn test_resource_subsequent_run_returns_current_signal() {
+    init_test_env();
+    let local = tokio::task::LocalSet::new();
+    local
+        .run_until(async {
+            let owner = Owner::new_root(None);
+            owner.with(|| {
+                let (signal, _resource) = use_hydrate_signal::<DefaultState>();
+                // Mutate the signal — a subsequent resource poll would return this value
+                signal.set(DefaultState { value: 99 });
+                assert_eq!(signal.get_untracked().value, 99);
+            });
+        })
+        .await;
+}
+
+// ---------------------------------------------------------------------------
+// Sync Opt-out tests
+// ---------------------------------------------------------------------------
+
+#[cfg(not(feature = "ssr"))]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Debug)]
+pub struct NoSyncState {
+    pub value: i32,
+}
+#[cfg(not(feature = "ssr"))]
+impl Hydratable for NoSyncState {
+    fn initial() -> Self {
+        NoSyncState { value: 50 }
+    }
+    #[cfg(not(feature = "ssr"))]
+    fn should_sync_on_client() -> bool {
+        false
+    }
+}
+
+#[cfg(not(feature = "ssr"))]
+#[tokio::test]
+async fn test_should_sync_on_client_false_skips_rerun() {
+    init_test_env();
+    let local = tokio::task::LocalSet::new();
+    local
+        .run_until(async {
+            let owner = Owner::new_root(None);
+            let (_signal, resource) = owner.with(|| use_hydrate_signal::<NoSyncState>());
+
+            // Wait for the resource to resolve
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+            // In non-SSR mode, the resource re-runs initial().
+            // If should_sync_on_client is false, it should return None.
+            assert_eq!(resource.get_untracked(), Some(None));
+        })
+        .await;
 }

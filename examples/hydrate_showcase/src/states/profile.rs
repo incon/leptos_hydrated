@@ -146,15 +146,15 @@ pub async fn update_profile(name: String, role: String) -> Result<UserProfile, S
 }
 
 #[server]
-pub async fn toggle_theme_server() -> Result<(), ServerFnError> {
+pub async fn toggle_theme_server() -> Result<ProfileState, ServerFnError> {
     let theme = get_cookie("theme").unwrap_or_else(|| "light".to_string());
     let new_theme = if theme == "dark" { "light" } else { "dark" };
     set_cookie("theme", &new_theme, "; path=/; max-age=31536000");
-    Ok(())
+    Ok(read_profile_state())
 }
 
 #[server]
-pub async fn toggle_login_server() -> Result<(), ServerFnError> {
+pub async fn toggle_login_server() -> Result<ProfileState, ServerFnError> {
     let profile = read_profile_state();
     if profile.is_authenticated {
         set_cookie("session", "", "; path=/; max-age=0");
@@ -172,5 +172,5 @@ pub async fn toggle_login_server() -> Result<(), ServerFnError> {
             );
         }
     }
-    Ok(())
+    Ok(read_profile_state())
 }
