@@ -3,6 +3,9 @@ use leptos::prelude::*;
 use serde::{Serialize, de::DeserializeOwned};
 
 /// A trait for types that can be hydrated automatically.
+///
+/// This is ideal for data you **already have or can have on both sides** (e.g., cookies,
+/// query params, or localStorage) to ensure a flicker-free initial render.
 pub trait Hydratable:
     Clone + Serialize + DeserializeOwned + Default + Send + Sync + 'static
 {

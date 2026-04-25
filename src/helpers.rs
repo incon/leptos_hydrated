@@ -3,9 +3,14 @@ use leptos::prelude::*;
 #[cfg(any(feature = "ssr", not(target_arch = "wasm32")))]
 use std::collections::HashMap;
 
-/// A request-scoped store for cookies and query parameters.
-/// This ensures that changes made during a request (like setting a cookie)
-/// are immediately visible to subsequent lookups in the same request.
+/// A request-scoped store for isomorphically shared hydration data.
+/// This is best used for data you **have or can have on both sides** (e.g., cookies,
+/// query params, or custom request state) to ensure immediate availability during
+/// the hydration lifecycle.
+///
+/// This ensures that changes made during a request (such as setting cookies or
+/// modifying shared state) are immediately visible to subsequent lookups in
+/// the same request.
 #[cfg(any(feature = "ssr", not(target_arch = "wasm32")))]
 #[derive(Clone, Debug)]
 struct HydrationStore {

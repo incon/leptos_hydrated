@@ -1,12 +1,16 @@
 # Leptos Hydrated
 
-A lightweight library for **flicker-free interactive state hydration** in [Leptos 0.8](https://leptos.dev/) that is specifically designed to work with `leptos_axum`.
+A lightweight library for **flicker-free interactive state hydration** in [Leptos 0.8](https://leptos.dev/). It is designed for data you **already have or can have on both sides** (isomorphic data), such as cookies, URL parameters, or locally cached state.
+
+## Core Philosophy
+
+`leptos_hydrated` is ideal for bootstrapping state that is available on both the server and the client without waiting for an API call. By initializing signals immediately with server-provided state and synchronizing them once the browser is active, you eliminate the "loading flicker" common in SSR applications.
 
 ## Features
 
 - **Flicker-Free:** Initializes signals with server-provided state immediately during hydration.
-- **Browser-First:** Leverage state already in the browser (cookies, URL params) to render the first frame without waiting for API calls.
-- **Isomorphic:** Works naturally in both SSR and CSR contexts.
+- **Isomorphic-First:** Perfect for data available on both sides (cookies, URL params, window state).
+- **Browser-Ready:** Leverage state already in the browser to render the first frame without waiting for async resources.
 - **Trait-Based:** Use the `Hydratable` trait to define state and refresh logic in one place.
 - **Global & Scoped:** Support for both global application state and scoped feature state.
 - **Zero Mismatch:** Designed to avoid hydration warnings by matching server and client initial renders exactly.
@@ -31,7 +35,7 @@ leptos_hydrated = "0.8"
 
 ### 1. Define your State with `Hydratable`
 
-The most robust way to use `leptos_hydrated` is by implementing the `Hydratable` trait. This encapsulates your synchronous "seed" logic (e.g., cookies) and your asynchronous "refresh" logic (e.g., API calls).
+To use `leptos_hydrated`, you implement the `Hydratable` trait. This encapsulates your synchronous "seed" logic (e.g., cookies) and your asynchronous "refresh" logic (e.g., API calls).
 
 ```rust
 use leptos::prelude::*;

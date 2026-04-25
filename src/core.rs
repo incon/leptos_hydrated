@@ -57,10 +57,6 @@ pub(crate) fn read_injected_state<T: DeserializeOwned>(id: &str) -> Option<T> {
 ///
 /// This is useful on the client inside `initial()` to merge server state with
 /// local state (like localStorage).
-/// Returns the value that was injected by the server for a specific type.
-///
-/// This is useful on the client inside `initial()` to merge server state with
-/// local state (like localStorage).
 #[cfg(not(feature = "ssr"))]
 #[allow(dead_code)]
 pub fn get_injected_state<T>() -> Option<T>
