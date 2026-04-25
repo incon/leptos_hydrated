@@ -24,14 +24,7 @@ pub struct DefaultState {
 }
 impl Hydratable for DefaultState {
     fn initial() -> Self {
-        #[cfg(not(feature = "browser"))]
-        {
-            Self::default()
-        }
-        #[cfg(feature = "browser")]
-        {
-            Self::default()
-        }
+        Self::default()
     }
 }
 
@@ -42,16 +35,8 @@ pub struct ThemeState {
 
 impl Hydratable for ThemeState {
     fn initial() -> Self {
-        #[cfg(not(feature = "browser"))]
-        {
-            let theme = get_cookie("theme").unwrap_or_else(|| "dark".into());
-            ThemeState { theme }
-        }
-        #[cfg(feature = "browser")]
-        {
-            let theme = get_cookie("theme").unwrap_or_else(|| "dark".into());
-            ThemeState { theme }
-        }
+        let theme = get_cookie("theme").unwrap_or_else(|| "dark".into());
+        ThemeState { theme }
     }
 }
 
@@ -66,11 +51,11 @@ impl Hydratable for FetchState {
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Debug)]
-#[cfg(feature = "browser")]
+#[cfg(all(feature = "hydrate", not(feature = "ssr")))]
 pub struct SlowState {
     pub value: i32,
 }
-#[cfg(feature = "browser")]
+#[cfg(all(feature = "hydrate", not(feature = "ssr")))]
 impl Hydratable for SlowState {
     fn initial() -> Self {
         SlowState { value: 2 }
@@ -91,7 +76,7 @@ async fn test_signal_initialises_from_fetch_state() {
             owner.with(|| {
                 let (signal, _) = use_hydrate_signal::<FetchState>();
                 // In native tests, it starts with T::initial() which is 100
-                assert_eq!(signal.get().value, 100);
+                assert_eq!(signal.get_untracked().value, 100);
             });
         })
         .await;
@@ -106,14 +91,14 @@ async fn test_initial_sync_keeps_value() {
             let owner = Owner::new_root(None);
             owner.with(|| {
                 let (signal, _) = use_hydrate_signal::<DefaultState>();
-                assert_eq!(signal.get().value, 0);
+                assert_eq!(signal.get_untracked().value, 0);
             });
         })
         .await;
 }
 
 // Client-only behavior: resource actually resolves
-#[cfg(feature = "browser")]
+#[cfg(all(feature = "hydrate", not(feature = "ssr")))]
 #[tokio::test]
 async fn test_initial_updates_signal() {
     init_test_env();
@@ -125,18 +110,18 @@ async fn test_initial_updates_signal() {
                 let (signal, _) = use_hydrate_signal::<FetchState>();
                 signal
             });
-            assert_eq!(signal.get().value, 100);
+            assert_eq!(signal.get_untracked().value, 100);
             // It should still be 100 because it re-ran initial() which returns 100
             for _ in 0..20 {
                 tokio::task::yield_now().await;
             }
             tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-            assert_eq!(signal.get().value, 100);
+            assert_eq!(signal.get_untracked().value, 100);
         })
         .await;
 }
 
-#[cfg(feature = "browser")]
+#[cfg(all(feature = "hydrate", not(feature = "ssr")))]
 #[tokio::test]
 async fn test_two_way_binding_sync_flow() {
     init_test_env();
@@ -147,21 +132,21 @@ async fn test_two_way_binding_sync_flow() {
             let (signal, resource) = owner.with(|| use_hydrate_signal::<SlowState>());
 
             // 1. Initial state (SlowState::initial returns 2)
-            assert_eq!(signal.get().value, 2);
+            assert_eq!(signal.get_untracked().value, 2);
 
             // 2. Wait for hydration (it re-runs initial which returns 2)
             tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-            assert_eq!(signal.get().value, 2);
-            assert_eq!(resource.get(), Some(Some(SlowState { value: 2 })));
+            assert_eq!(signal.get_untracked().value, 2);
+            assert_eq!(resource.get_untracked(), Some(Some(SlowState { value: 2 })));
 
             // 3. Simulated user update
             signal.set(SlowState { value: 3 });
-            assert_eq!(signal.get().value, 3);
+            assert_eq!(signal.get_untracked().value, 3);
             // Wait for resource to re-evaluate
             for _ in 0..10 {
                 tokio::task::yield_now().await;
             }
-            assert_eq!(resource.get(), Some(Some(SlowState { value: 3 })));
+            assert_eq!(resource.get_untracked(), Some(Some(SlowState { value: 3 })));
         })
         .await;
 }
@@ -174,15 +159,17 @@ async fn test_two_way_binding_sync_flow() {
 async fn test_ssr_resource_is_muted() {
     init_test_env();
     let local = tokio::task::LocalSet::new();
-    local.run_until(async {
-        let owner = Owner::new_root(None);
-        owner.with(|| {
-            let (signal, resource) = use_hydrate_signal::<DefaultState>();
-            assert_eq!(signal.get().value, 0);
-            // LocalResource should not resolve on the server
-            assert!(resource.get().is_none());
-        });
-    }).await;
+    local
+        .run_until(async {
+            let owner = Owner::new_root(None);
+            owner.with(|| {
+                let (signal, resource) = use_hydrate_signal::<DefaultState>();
+                assert_eq!(signal.get_untracked().value, 0);
+                // LocalResource should not resolve on the server
+                assert!(resource.get_untracked().is_none());
+            });
+        })
+        .await;
 }
 
 // ---------------------------------------------------------------------------
@@ -265,7 +252,7 @@ fn test_try_use_hydrated_returns_some_when_context_exists() {
         })));
         let result = try_use_hydrated::<ThemeState>();
         assert!(result.is_some());
-        assert_eq!(result.unwrap().get().theme, "dark");
+        assert_eq!(result.unwrap().get_untracked().theme, "dark");
     });
 }
 
@@ -312,6 +299,23 @@ async fn test_get_cookie_ssr() {
 
 #[cfg(feature = "ssr")]
 #[tokio::test]
+async fn test_set_cookie_ssr() {
+    use leptos_axum::ResponseOptions;
+
+    let owner = Owner::new_root(None);
+    owner.with(|| {
+        let res_options = ResponseOptions::default();
+        provide_context(res_options.clone());
+
+        set_cookie("test_c", "val", "; Path=/");
+
+        // Verify it was also inserted into mock state
+        assert_eq!(get_cookie("test_c"), Some("val".into()));
+    });
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
 async fn test_get_query_param_ssr() {
     use axum::http::Request;
 
@@ -332,7 +336,7 @@ async fn test_get_query_param_ssr() {
 
 #[cfg(feature = "ssr")]
 #[tokio::test]
-async fn test_get_referer_query_param_ssr() {
+async fn test_get_query_param_referer_ssr() {
     use axum::http::Request;
     use axum::http::header::REFERER;
 
@@ -350,7 +354,38 @@ async fn test_get_referer_query_param_ssr() {
     });
 }
 
-#[cfg(all(not(feature = "ssr"), not(feature = "browser")))]
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn test_get_query_param_referer_malformed_ssr() {
+    use axum::http::Request;
+    use axum::http::header::REFERER;
+
+    let owner = Owner::new_root(None);
+
+    // 1. Referer without query
+    let (parts, _) = Request::builder()
+        .header(REFERER, "http://site.com/page")
+        .body(())
+        .unwrap()
+        .into_parts();
+    owner.with(|| {
+        provide_context(parts);
+        assert_eq!(get_query_param("any"), None);
+    });
+
+    // 2. Referer with invalid URI
+    let (parts, _) = Request::builder()
+        .header(REFERER, "not a uri")
+        .body(())
+        .unwrap()
+        .into_parts();
+    owner.with(|| {
+        provide_context(parts);
+        assert_eq!(get_query_param("any"), None);
+    });
+}
+
+#[cfg(all(not(feature = "ssr"), not(feature = "hydrate")))]
 #[test]
 fn test_cookie_persistence_in_csr_mode() {
     // In CSR mode (native tests), we use a mock store

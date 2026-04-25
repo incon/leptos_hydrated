@@ -22,18 +22,37 @@ serde = { version = "1.0", features = ["derive"] }
 serde-wasm-bindgen = "0.6"
 serde_json = { version = "1.0", optional = true }
 leptos_hydrated = { path = "../../" }
+leptos-use = "0.18"
 web-sys = { version = "0.3", features = [
-    "IdbFactory", "IdbDatabase", "IdbObjectStore", "IdbTransaction", 
-    "IdbRequest", "IdbOpenDbRequest", "Window", "Navigator", 
-    "ServiceWorkerContainer", "IdbCursor", "IdbCursorWithValue",
-    "IdbTransactionMode", "DomStringList", "Storage", "History", "Location"
+    "IdbFactory",
+    "IdbDatabase",
+    "IdbObjectStore",
+    "IdbTransaction",
+    "IdbRequest",
+    "IdbOpenDbRequest",
+    "Window",
+    "Navigator",
+    "ServiceWorkerContainer",
+    "IdbCursor",
+    "IdbCursorWithValue",
+    "IdbTransactionMode",
+    "DomStringList",
+    "Storage",
+    "History",
+    "Location",
 ] }
 
 [features]
-hydrate = ["browser", "leptos_hydrated/hydrate"]
-csr = ["browser", "leptos_hydrated/csr"]
-browser = [
+hydrate = [
     "leptos/hydrate",
+    "leptos/csr",
+    "leptos_hydrated/hydrate",
+    "dep:console_error_panic_hook",
+    "dep:wasm-bindgen",
+]
+csr = [
+    "leptos/csr",
+    "leptos_hydrated/csr",
     "dep:console_error_panic_hook",
     "dep:wasm-bindgen",
 ]

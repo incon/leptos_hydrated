@@ -62,10 +62,18 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
                 }
             </head>
             <body>
-                <App/>
+                <Pwa was_hydrated=true>
+                    <App/>
+                </Pwa>
             </body>
         </html>
     }
+}
+
+#[component]
+pub fn Pwa(children: Children, was_hydrated: bool) -> impl IntoView {
+    provide_context(PwaInit { was_hydrated });
+    children()
 }
 
 #[component]

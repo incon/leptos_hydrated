@@ -13,32 +13,42 @@ readme = "README.md"
 documentation = "https://docs.rs/leptos_hydrated"
 
 [features]
-ssr      = ["leptos/ssr", "dep:serde_json", "dep:leptos_axum", "dep:http"]
-hydrate  = ["browser", "dep:serde-wasm-bindgen"]
-csr      = ["browser"]
+ssr = ["leptos/ssr", "dep:serde_json", "dep:leptos_axum", "dep:http"]
+hydrate = [
+    "leptos/hydrate",
+    "dep:serde-wasm-bindgen",
+    "dep:js-sys",
+    "dep:wasm-bindgen",
+    "dep:web-sys",
+]
+csr = ["leptos/csr", "dep:js-sys", "dep:wasm-bindgen", "dep:web-sys"]
 hydrated = ["ssr", "hydrate"]
-browser  = ["dep:js-sys", "dep:wasm-bindgen"]
 
 [dependencies]
-leptos           = { version = "0.8", default-features = false }
-serde            = { version = "1.0", features = ["derive"] }
-serde_json       = { version = "1.0", optional = true }
-js-sys           = { version = "0.3", optional = true }
-wasm-bindgen     = { version = "0.2", optional = true }
+leptos = { version = "0.8", default-features = false }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0", optional = true }
+js-sys = { version = "0.3", optional = true }
+wasm-bindgen = { version = "0.2", optional = true }
 serde-wasm-bindgen = { version = "0.6", optional = true }
-leptos_axum      = { version = "0.8", optional = true }
-http             = { version = "1.0", optional = true }
+leptos_axum = { version = "0.8", optional = true }
+http = { version = "1.0", optional = true }
+web-sys = { version = "0.3", optional = true, features = [
+    "UrlSearchParams",
+    "Location",
+    "Window",
+    "Document",
+    "Element",
+    "HtmlElement",
+] }
 
 [dev-dependencies]
-tokio        = { version = "1.51", features = ["full"] }
-any_spawner  = { version = "0.3.0", features = ["tokio"] }
-axum         = "0.8"
+tokio = { version = "1.51", features = ["full"] }
+any_spawner = { version = "0.3.0", features = ["tokio"] }
+axum = "0.8"
 
 [workspace]
-members = [
-    "examples/hydrate_showcase",
-    "examples/offline_pwa",
-]
+members = ["examples/hydrate_showcase", "examples/offline_pwa"]
 
 # Defines a size-optimized profile for the WASM bundle in release mode
 [profile.wasm-release]

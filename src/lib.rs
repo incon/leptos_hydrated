@@ -123,14 +123,14 @@ mod mock_state {
 
 #[macro_export]
 macro_rules! hydrated {
-    (ssr => $ssr:expr, csr => $csr:expr $(,)?) => {{
+    (server => $server:expr, client => $client:expr $(,)?) => {{
         #[cfg(feature = "ssr")]
         {
-            $ssr
+            $server
         }
         #[cfg(not(feature = "ssr"))]
         {
-            $csr
+            $client
         }
     }};
 }
@@ -153,14 +153,29 @@ macro_rules! server_only {
 /// Returns the result of the block in the browser, or `()` on the server.
 /// This is useful for side-effects where you don't need an `Option`.
 #[macro_export]
-macro_rules! browser_only {
+macro_rules! client_only {
     ($($t:tt)*) => {
         {
             #[cfg(not(feature = "ssr"))]
-            { $($t)*; }
-            ()
+            {
+                $($t)*
+            }
+            #[cfg(feature = "ssr")]
+            {
+                ()
+            }
         }
-    }
+    };
+}
+
+/// Returns `true` if running on the server.
+pub fn is_server() -> bool {
+    cfg!(feature = "ssr")
+}
+
+/// Returns `true` if running in the browser.
+pub fn is_client() -> bool {
+    !cfg!(feature = "ssr")
 }
 
 // ---------------------------------------------------------------------------
@@ -255,15 +270,16 @@ where
     T: Hydratable + PartialEq,
 {
     #[cfg(not(feature = "ssr"))]
-    let (initial_val, is_injected) = {
+    let (initial_val, _is_injected) = {
         let id = type_hydration_id::<T>();
         let injected = read_injected_state::<T>(&id);
         let is_inj = injected.is_some();
-        (injected.unwrap_or_else(T::initial), is_inj)
+        let val = injected.unwrap_or_else(T::initial);
+        (val, is_inj)
     };
 
     #[cfg(feature = "ssr")]
-    let (initial_val, is_injected) = (T::initial(), false);
+    let (initial_val, _is_injected) = (T::initial(), false);
 
     let signal = RwSignal::new(initial_val.clone());
     let first_run = StoredValue::new(true);
@@ -275,11 +291,7 @@ where
         async move {
             if is_first {
                 first_run.set_value(false);
-                if !is_injected {
-                    Some(T::initial())
-                } else {
-                    Some(current_val)
-                }
+                Some(T::initial())
             } else {
                 Some(current_val)
             }
@@ -320,12 +332,7 @@ pub fn get_cookie(name: &str) -> Option<String> {
             .and_then(|v| v.as_string())
             .unwrap_or_default();
 
-        return cookies.split("; ").find_map(|s| {
-            let mut parts = s.splitn(2, '=');
-            let k = parts.next()?.trim();
-            let v = parts.next()?.trim();
-            if k == name { Some(v.to_string()) } else { None }
-        });
+        return parse_key_value_pair(&cookies, name, "; ");
     }
 
     #[cfg(any(feature = "ssr", not(target_arch = "wasm32")))]
@@ -341,14 +348,7 @@ pub fn get_cookie(name: &str) -> Option<String> {
                     .headers
                     .get(COOKIE)
                     .and_then(|h| h.to_str().ok())
-                    .and_then(|cookies| {
-                        cookies.split("; ").find_map(|s| {
-                            let mut parts = s.splitn(2, '=');
-                            let k = parts.next()?.trim();
-                            let v = parts.next()?.trim();
-                            if k == name { Some(v.to_string()) } else { None }
-                        })
-                    })
+                    .and_then(|cookies| parse_key_value_pair(cookies, name, "; "))
             }) {
                 return Some(val);
             }
@@ -357,10 +357,6 @@ pub fn get_cookie(name: &str) -> Option<String> {
     }
 }
 
-/// Reads a URL query parameter by name from the current URI on both server and client.
-///
-/// - **SSR:** Reads from `http::request::Parts` (requires server setup with `leptos_routes_with_context`).
-/// - **Client:** Reads from `window.location.search`.
 /// Reads a URL query parameter by name on both server and client.
 ///
 /// - **SSR:** Tries reading from the current request URI first. If not found, falls back
@@ -370,39 +366,54 @@ pub fn get_cookie(name: &str) -> Option<String> {
 pub fn get_query_param(name: &str) -> Option<String> {
     #[cfg(all(target_arch = "wasm32", not(feature = "ssr")))]
     {
-        return window().location().search().ok().and_then(|q| {
-            q.trim_start_matches('?').split('&').find_map(|s| {
-                let mut parts = s.splitn(2, '=');
-                let k = parts.next()?.trim();
-                let v = parts.next()?.trim();
-                if k == name { Some(v.to_string()) } else { None }
-            })
-        });
+        let search = window().location().search().ok().unwrap_or_default();
+        return web_sys::UrlSearchParams::new_with_str(&search)
+            .ok()
+            .and_then(|p| p.get(name));
     }
 
     #[cfg(any(feature = "ssr", not(target_arch = "wasm32")))]
     {
         #[cfg(feature = "ssr")]
         {
+            use http::header::REFERER;
             use http::request::Parts;
             use leptos::prelude::use_context;
 
-            if let Some(val) = use_context::<Parts>().and_then(|parts| {
-                // Try current URI query
-                parts.uri.query().and_then(|q| {
-                    q.split('&').find_map(|s| {
-                        let mut parts = s.splitn(2, '=');
-                        let k = parts.next()?.trim();
-                        let v = parts.next()?.trim();
-                        if k == name { Some(v.to_string()) } else { None }
+            if let Some(parts) = use_context::<Parts>() {
+                // 1. Try current URI query
+                if let Some(q) = parts.uri.query() {
+                    if let Some(val) = parse_key_value_pair(q, name, "&") {
+                        return Some(val);
+                    }
+                }
+
+                // 2. Try Referer header query
+                if let Some(val) = parts
+                    .headers
+                    .get(REFERER)
+                    .and_then(|h| h.to_str().ok())
+                    .and_then(|r| {
+                        let uri = r.parse::<http::Uri>().ok()?;
+                        uri.query().and_then(|q| parse_key_value_pair(q, name, "&"))
                     })
-                })
-            }) {
-                return Some(val);
+                {
+                    return Some(val);
+                }
             }
         }
         mock_state::QUERY_PARAMS.with(|q| q.borrow().get(name).cloned())
     }
+}
+
+#[cfg(any(target_arch = "wasm32", feature = "ssr"))]
+fn parse_key_value_pair(s: &str, name: &str, sep: &str) -> Option<String> {
+    s.split(sep).find_map(|s| {
+        let mut parts = s.splitn(2, '=');
+        let k = parts.next()?.trim();
+        let v = parts.next()?.trim();
+        if k == name { Some(v.to_string()) } else { None }
+    })
 }
 
 /// Sets a cookie on both server and client.
@@ -480,7 +491,7 @@ where
     }
     #[cfg(all(not(feature = "ssr"), not(target_arch = "wasm32")))]
     {
-        view! { }
+        view! {}
     }
 }
 

@@ -21,6 +21,7 @@ async fn main() {
     let app = Router::new()
         .route("/sw.js", get(sw_handler))
         .route("/manifest.json", get(manifest_handler))
+        .route("/offline.html", get(offline_handler))
         .leptos_routes(&leptos_options, routes, {
             let leptos_options = leptos_options.clone();
             move || shell(leptos_options.clone())
@@ -52,7 +53,13 @@ async fn sw_handler(
     });
 
     (
-        [(axum::http::header::CONTENT_TYPE, "application/javascript")],
+        [
+            (axum::http::header::CONTENT_TYPE, "application/javascript"),
+            (
+                axum::http::header::CACHE_CONTROL,
+                "no-cache, no-store, must-revalidate",
+            ),
+        ],
         content.clone(),
     )
 }
@@ -63,13 +70,46 @@ async fn manifest_handler() -> impl axum::response::IntoResponse {
     static MANIFEST_CONTENT: OnceLock<String> = OnceLock::new();
 
     let content = MANIFEST_CONTENT.get_or_init(|| {
-        let manifest = include_str!("../public/manifest.json").to_string();
+        let mut manifest = include_str!("../public/manifest.json").to_string();
         let version = get_version();
-        manifest.replace("{{VERSION}}", &version)
+        manifest = manifest.replace("{{VERSION}}", &version);
+        manifest
     });
 
     (
-        [(axum::http::header::CONTENT_TYPE, "application/json")],
+        [
+            (axum::http::header::CONTENT_TYPE, "application/json"),
+            (
+                axum::http::header::CACHE_CONTROL,
+                "no-cache, no-store, must-revalidate",
+            ),
+        ],
+        content.clone(),
+    )
+}
+
+#[cfg(feature = "ssr")]
+async fn offline_handler(
+    axum::extract::State(options): axum::extract::State<leptos::config::LeptosOptions>,
+) -> impl axum::response::IntoResponse {
+    use std::sync::OnceLock;
+    static OFFLINE_CONTENT: OnceLock<String> = OnceLock::new();
+
+    let content = OFFLINE_CONTENT.get_or_init(|| {
+        let mut html = include_str!("../public/offline.html").to_string();
+        let version = get_version();
+        html = html.replace("{{OUTPUT_NAME}}", &options.output_name);
+        html.replace("{{VERSION}}", &version)
+    });
+
+    (
+        [
+            (axum::http::header::CONTENT_TYPE, "text/html"),
+            (
+                axum::http::header::CACHE_CONTROL,
+                "no-cache, no-store, must-revalidate",
+            ),
+        ],
         content.clone(),
     )
 }

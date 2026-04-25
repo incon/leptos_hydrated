@@ -1,9 +1,9 @@
-use leptos::prelude::*;
-use leptos::form::ActionForm;
-use leptos_hydrated::*;
-use leptos_hydrated::browser_only;
-use crate::states::{SecureUserData, LoginSecure, LogoutSecure};
 use crate::components::TabPanel;
+use crate::states::{LoginSecure, LogoutSecure, SecureUserData};
+use leptos::form::ActionForm;
+use leptos::prelude::*;
+use leptos_hydrated::client_only;
+use leptos_hydrated::*;
 
 #[component]
 pub fn HttpOnlyTab(tab: &'static str) -> impl IntoView {
@@ -14,7 +14,7 @@ pub fn HttpOnlyTab(tab: &'static str) -> impl IntoView {
     // Reload the page after login/logout to see the HTTP-only cookie in action
     Effect::new(move |_| {
         if login_action.value().get().is_some() || logout_action.value().get().is_some() {
-            browser_only! {
+            client_only! {
                 use leptos::prelude::window;
                 let _ = window().location().reload();
             };
@@ -42,7 +42,7 @@ pub fn HttpOnlyTab(tab: &'static str) -> impl IntoView {
                                     </div>
                                     <span class="label">"Current Balance:"</span>
                                     <span class="balance-display">{format!("${}.00", state.balance)}</span>
-                                    
+
                                     <ActionForm action=logout_action>
                                         <button type="submit" class="btn btn-danger"
                                             style="margin-top: 1rem; align-self: flex-start;">

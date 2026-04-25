@@ -1,9 +1,12 @@
+#![allow(unused_imports)]
+use leptos::context::use_context;
+use leptos::prelude::{RwSignal, Update};
+use leptos_hydrated::hydrated;
 use leptos_hydrated::*;
 use serde::{Deserialize, Serialize};
-use leptos_hydrated::hydrated;
 
 #[cfg(not(feature = "ssr"))]
-use leptos::prelude::*;
+use leptos_use::use_event_listener;
 
 #[derive(Clone, Default, Serialize, Deserialize, Debug, PartialEq)]
 pub struct TodoItem {
@@ -21,8 +24,8 @@ pub struct TodoState {
 impl Hydratable for TodoState {
     fn initial() -> Self {
         hydrated! {
-            ssr => Self::default(),
-            csr => {
+            server => Self::default(),
+            client => {
                 // On client, try to restore from localStorage (sync)
                 leptos::logging::log!("LocalStorage: Restoring todos state...");
                 let window = web_sys::window().unwrap();
@@ -56,61 +59,31 @@ impl Default for OnlineState {
     }
 }
 
+#[derive(Copy, Clone, Debug)]
+pub struct PwaInit {
+    pub was_hydrated: bool,
+}
+
 impl Hydratable for OnlineState {
     fn initial() -> Self {
-        hydrated! {
-            ssr => Self {
-                online: get_cookie("online_status").map_or(true, |v| v == "true"),
-            },
-            csr => {
-                let window = web_sys::window().unwrap();
-                Self {
-                    online: window.navigator().on_line(),
-                }
-            }
+        let was_hydrated = use_context::<PwaInit>()
+            .map(|c| c.was_hydrated)
+            .unwrap_or(true);
+        Self {
+            online: was_hydrated,
         }
     }
 
     #[cfg(not(feature = "ssr"))]
     fn on_hydrate(&self, online_state: RwSignal<Self>) {
         use leptos::ev;
-        let window = web_sys::window().unwrap();
-        let current_online = window.navigator().on_line();
 
-        leptos::prelude::Effect::new(move |_| {
-            leptos::logging::log!("OnlineState: Hydrated, setting up listeners...");
+        let _ = use_event_listener(web_sys::window(), ev::online, move |_| {
+            online_state.update(|s| s.online = true);
+        });
 
-            // 1. Initial client-side sync
-            if current_online != online_state.get_untracked().online {
-                online_state.set(OnlineState {
-                    online: current_online,
-                });
-                set_cookie(
-                    "online_status",
-                    if current_online { "true" } else { "false" },
-                    "; path=/; max-age=31536000; SameSite=Lax",
-                );
-            }
-
-            // 2. Setup permanent event listeners
-            std::mem::forget(window_event_listener(ev::online, move |_| {
-                leptos::logging::log!("OnlineState: online event");
-                online_state.set(OnlineState { online: true });
-                set_cookie(
-                    "online_status",
-                    "true",
-                    "; path=/; max-age=31536000; SameSite=Lax",
-                );
-            }));
-            std::mem::forget(window_event_listener(ev::offline, move |_| {
-                leptos::logging::log!("OnlineState: offline event");
-                online_state.set(OnlineState { online: false });
-                set_cookie(
-                    "online_status",
-                    "false",
-                    "; path=/; max-age=31536000; SameSite=Lax",
-                );
-            }));
+        let _ = use_event_listener(web_sys::window(), ev::offline, move |_| {
+            online_state.update(|s| s.online = false);
         });
     }
 }

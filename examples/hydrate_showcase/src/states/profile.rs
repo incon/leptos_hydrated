@@ -1,6 +1,6 @@
 use leptos::prelude::*;
+use leptos_hydrated::client_only;
 use leptos_hydrated::*;
-use leptos_hydrated::browser_only;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Default, Serialize, Deserialize, Debug, PartialEq)]
@@ -15,7 +15,7 @@ impl ProfileState {
         state.update(|s| {
             let new_theme = if s.theme == "dark" { "light" } else { "dark" };
             s.theme = new_theme.to_string();
-            browser_only! {
+            client_only! {
                 set_cookie("theme", &new_theme, "; path=/; max-age=31536000");
             };
         });
@@ -26,7 +26,7 @@ impl ProfileState {
             if s.is_authenticated {
                 s.is_authenticated = false;
                 s.profile = None;
-                browser_only! {
+                client_only! {
                     set_cookie("session", "", "; path=/; max-age=0");
                 };
             } else {
@@ -37,7 +37,7 @@ impl ProfileState {
                     edits: 42,
                 };
                 s.profile = Some(profile.clone());
-                browser_only! {
+                client_only! {
                     let js_val = serde_wasm_bindgen::to_value(&profile).unwrap();
                     if let Ok(json) = js_sys::JSON::stringify(&js_val) {
                         let json_str: String = json.into();
@@ -51,7 +51,7 @@ impl ProfileState {
                 };
             }
         });
-        browser_only! {
+        client_only! {
             use leptos::prelude::window;
             let _ = window().location().reload();
         };
@@ -118,7 +118,9 @@ pub async fn fetch_profile_state() -> Result<ProfileState, ServerFnError> {
 #[server]
 pub async fn update_profile(name: String, role: String) -> Result<UserProfile, ServerFnError> {
     let session = get_cookie("session").unwrap_or_default();
-    let decoded = urlencoding::decode(&session).map(|d| d.into_owned()).unwrap_or_default();
+    let decoded = urlencoding::decode(&session)
+        .map(|d| d.into_owned())
+        .unwrap_or_default();
     let current_profile = serde_json::from_str::<UserProfile>(&decoded).ok();
 
     let current_edits = match current_profile {

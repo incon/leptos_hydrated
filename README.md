@@ -17,14 +17,15 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-leptos_hydrated = "0.7"
+leptos_hydrated = "0.8"
 ```
 
-## Two Modes
-| Mode | `fetch()` | Use when |
-|------|-----------|----------|
-| **Injection-only** | `None` (default) | Server value is the source of truth (HTTP-only cookies, session tokens) |
-| **Injection + refresh** | `Some(v)` | Client can also re-read the same state (JS-readable cookies, URL params) |
+## How it Works
+
+1. **Server-Side Render (SSR):** `initial()` is called on the server. The result is serialized into the HTML shell.
+2. **Hydration:** The client reads the serialized state from the HTML and initializes the signal immediately — **zero flicker**.
+3. **Synchronization:** Once the WASM is active, `initial()` is re-run on the client to synchronize with the current browser state (e.g., reading a JS-accessible cookie).
+4. **Lifecycle Hooks:** Use `on_hydrate` to set up browser-only event listeners (e.g., network status, window resize).
 
 ## Quick Start
 
@@ -49,12 +50,8 @@ impl Hydratable for ThemeState {
         ThemeState { theme }
     }
 
-    fn fetch() -> impl std::future::Future<Output = Option<Self>> + Send + 'static {
-        // Re-read from the same client-side source after hydration.
-        async {
-            let theme = get_cookie("theme").unwrap_or_else(|| "dark".into());
-            Some(ThemeState { theme })
-        }
+    fn on_hydrate(&self, state: RwSignal<Self>) {
+        // Optional: Do something in the browser after hydration
     }
 }
 ```
@@ -101,46 +98,106 @@ fn ProfileSection() -> impl IntoView {
 }
 ```
 
-### 3. Manual Hydration (Advanced)
+### Environment Macros
 
-If you don't want to use the trait, you can use the base components directly:
+`leptos_hydrated` provides macros to simplify environment-gated code:
 
-```rust
-view! {
-    // Global
-    <HydrateStateWith
-        ssr_value=|| ThemeState { theme: "dark".into() }
-        fetcher=|| async { Some(ThemeState { theme: "dark".into() }) }
-    />
-    
-    // Scoped
-    <HydrateContextWith
-        ssr_value=|| ThemeState { theme: "dark".into() }
-        fetcher=|| async { Some(ThemeState { theme: "dark".into() }) }
-    >
-        <ProfileInfo />
-    </HydrateContextWith>
-}
-```
+- **`hydrated! { server => ..., client => ... }`**: A concise way to branch between SSR and browser logic.
+- **`server_only! { ... }`**: Executes code only on the server. Returns `()` in the browser.
+- **`client_only! { ... }`**: Executes code only in the browser. Returns `()` on the server.
+- **`is_server()`**: Returns `true` if running on the server.
+- **`is_client()`**: Returns `true` if running in the browser.
 
 ### Isomorphic Helpers
 
-`leptos_hydrated` provides several helpers to read and write state consistently on both server and client, which is particularly useful inside `Hydratable::initial()`.
+These helpers read and write state consistently on both server and client.
 
 - **`get_cookie(name)`**: Reads a cookie by name. 
   - *SSR:* Reads from `http::request::Parts`.
   - *Client:* Reads from `document.cookie`.
 - **`set_cookie(name, value, options)`**: Sets a cookie. 
-  - *SSR:* Uses `leptos_axum::ResponseOptions` to insert a `SET-COOKIE` header.
+  - *SSR:* Inserts a `SET-COOKIE` header into the response.
   - *Client:* Updates `document.cookie`.
-- **`get_query_param(name)`**: Reads a URL query parameter. On SSR, it tries the current request URI first, then falls back to the `Referer` header (useful in server functions).
+- **`get_query_param(name)`**: Reads a URL query parameter.
+  - *SSR:* Reads from current URI or `Referer` fallback.
   - *Client:* Reads from `window.location.search`.
-- **`get_header(name)`**: Reads an arbitrary HTTP header by name.
-  - *SSR:* Reads from `http::request::Parts`.
-  - *Client:* Returns `None`.
-- **`set_header(name, value)`**: Sets an arbitrary HTTP header.
-  - *SSR:* Inserts into `leptos_axum::ResponseOptions`.
-  - *Client:* No-op.
+
+## PWA & "Born Offline" Support
+
+Progressive Web Apps often load from an "offline shell" (an empty HTML file cached by a Service Worker). In this scenario, the app is **not** hydrated from SSR content but is instead "Born Offline" in CSR mode.
+
+`leptos_hydrated` handles this by allowing you to propagate the mounting mode from your `lib.rs` into your component tree.
+
+### 1. Detect Mounting Mode (lib.rs)
+
+In your PWA entry point, check if the DOM already contains UI. If not, you are running from the offline shell.
+
+```rust
+#[wasm_bindgen]
+pub fn hydrate() {
+    let body = document().body().unwrap();
+    // If there is no UI, we are in the offline shell
+    let was_hydrated = body.query_selector(":not(script)").unwrap().is_some();
+
+    if !was_hydrated {
+        leptos::mount::mount_to_body(move || {
+            view! { <Pwa was_hydrated=false><App /></Pwa> }
+        });
+    } else {
+        leptos::mount::hydrate_body(move || {
+            view! { <Pwa was_hydrated=true><App /></Pwa> }
+        });
+    }
+}
+```
+
+### 2. Provide Context via a Wrapper
+
+Create a simple wrapper to provide the hydration status to your states.
+
+```rust
+#[derive(Copy, Clone, Debug)]
+pub struct PwaInit { pub was_hydrated: bool }
+
+#[component]
+pub fn Pwa(children: Children, was_hydrated: bool) -> impl IntoView {
+    provide_context(PwaInit { was_hydrated });
+    children()
+}
+```
+
+### 3. Consume in your State
+
+Use the context in `initial()` to decide how to seed your state. This is perfect for restoring from `localStorage` or correctly setting initial connectivity status.
+
+```rust
+impl Hydratable for OnlineState {
+    fn initial() -> Self {
+        // Detect if we were hydrated from SSR or started from an offline shell
+        let was_hydrated = use_context::<PwaInit>()
+            .map(|c| c.was_hydrated)
+            .unwrap_or(true);
+
+        hydrated! {
+            server => Self { online: true },
+            client => Self { online: was_hydrated }
+        }
+    }
+
+    fn on_hydrate(&self, state: RwSignal<Self>) {
+        // Set up browser-only event listeners to keep state in sync
+        client_only! {
+            use leptos::ev;
+            let _ = use_event_listener(web_sys::window(), ev::online, move |_| {
+                state.update(|s| s.online = true);
+            });
+            let _ = use_event_listener(web_sys::window(), ev::offline, move |_| {
+                state.update(|s| s.online = false);
+            });
+        }
+    }
+}
+```
 
 ## Server-Side Setup
 
