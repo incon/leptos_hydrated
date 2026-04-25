@@ -109,12 +109,33 @@ fn ProfileSection() -> impl IntoView {
 
 `leptos_hydrated` provides macros to simplify environment-gated code:
 
-- **`isomorphic! { server => ..., client => ... }`**: A concise way to branch between SSR and browser logic.
+- **`isomorphic! { state => ..., hydrate => ... }`**: A concise way to provide server state and browser hydration.
 - **`get_injected_state<T>()`**: Allows the client to inspect the value originally sent by the server for state merging.
 - **`server_only! { ... }`**: Executes code only on the server. Returns `()` in the browser.
 - **`client_only! { ... }`**: Executes code only in the browser. Returns `()` on the server.
 - **`is_server()`**: Returns `true` if running on the server.
 - **`is_client()`**: Returns `true` if running in the browser.
+
+#### Example: Merging Server & Local State
+
+```rust
+impl Hydratable for TodoState {
+    fn initial() -> Self {
+        isomorphic! {
+            state => Self::default(),
+            hydrate => {
+                // Get state injected by the server (this block only runs in the browser)
+                let from_server = get_injected_state::<Self>();
+
+                // Prioritize local state (localStorage) over server state
+                read_from_local_storage()
+                    .or(from_server)
+                    .unwrap_or_default()
+            }
+        }
+    }
+}
+```
 
 ### Isomorphic Helpers
 
@@ -187,8 +208,8 @@ impl Hydratable for OnlineState {
             .unwrap_or(true);
 
         isomorphic! {
-            server => Self { online: true },
-            client => Self { online: was_hydrated }
+            state => Self { online: true },
+            hydrate => Self { online: was_hydrated }
         }
     }
 

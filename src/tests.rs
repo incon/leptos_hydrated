@@ -470,8 +470,8 @@ fn test_is_client_true_when_not_ssr() {
 #[test]
 fn test_isomorphic_macro_branches_correctly() {
     let val = isomorphic! {
-        server => "ssr",
-        client => "csr"
+        state => "ssr",
+        hydrate => "csr"
     };
     #[cfg(feature = "ssr")]
     assert_eq!(val, "ssr");

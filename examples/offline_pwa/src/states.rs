@@ -26,13 +26,10 @@ pub struct TodoState {
 impl Hydratable for TodoState {
     fn initial() -> Self {
         isomorphic! {
-            server => Self::default(),
-            client => {
+            state => Self::default(),
+            hydrate => {
                 // Check if the server sent any state (e.g. from a shared link)
-                #[cfg(not(feature = "ssr"))]
                 let from_server = get_injected_state::<Self>();
-                #[cfg(feature = "ssr")]
-                let from_server: Option<Self> = None;
 
                 // On client, try to restore from localStorage (sync)
                 leptos::logging::log!("LocalStorage: Restoring todos state...");

@@ -1,13 +1,13 @@
 #[macro_export]
 macro_rules! isomorphic {
-    (server => $server:expr, client => $client:expr $(,)?) => {{
+    (state => $state:expr, hydrate => $hydrate:expr $(,)?) => {{
         #[cfg(feature = "ssr")]
         {
-            $server
+            $state
         }
         #[cfg(not(feature = "ssr"))]
         {
-            $client
+            $hydrate
         }
     }};
 }
