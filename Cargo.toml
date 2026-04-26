@@ -13,7 +13,13 @@ readme = "README.md"
 documentation = "https://docs.rs/leptos_hydrated"
 
 [features]
-ssr = ["leptos/ssr", "dep:serde_json", "dep:leptos_axum", "dep:http", "dep:serde_urlencoded"]
+ssr = [
+    "leptos/ssr",
+    "dep:serde_json",
+    "dep:leptos_axum",
+    "dep:http",
+    "dep:serde_urlencoded",
+]
 hydrate = [
     "leptos/hydrate",
     "dep:serde-wasm-bindgen",
@@ -48,6 +54,7 @@ web-sys = { version = "0.3", optional = true, features = [
 tokio = { version = "1.51", features = ["full"] }
 any_spawner = { version = "0.3.0", features = ["tokio"] }
 axum = "0.8"
+leptos_router = "0.8"
 
 [workspace]
 members = ["examples/hydrate_showcase", "examples/offline_pwa"]

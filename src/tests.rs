@@ -186,7 +186,7 @@ fn MainContent() -> impl IntoView {
 }
 
 #[tokio::test]
-async fn test_hydrate_state_provides_context() {
+async fn test_hydrate_context_global_provides_context() {
     init_test_env();
     let local = tokio::task::LocalSet::new();
     local
@@ -194,7 +194,7 @@ async fn test_hydrate_state_provides_context() {
             let owner = Owner::new_root(None);
             owner.with(|| {
                 let _ = view! {
-                    <HydrateState<ThemeState> />
+                    <HydrateContext<ThemeState> global=true />
                     <MainContent />
                 };
             });

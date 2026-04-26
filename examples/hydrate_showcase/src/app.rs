@@ -32,7 +32,7 @@ pub fn App() -> impl IntoView {
         <Title text="Hydrate Showcase" />
 
         <div id="app-root">
-            <HydrateContext<ProfileState>>
+            <HydrateContext<ProfileState> global=true/>
                 <HydrateContext<SecureUserData>>
                     <Router>
                         <HydrateContext<TabState>>
@@ -47,7 +47,6 @@ pub fn App() -> impl IntoView {
                         </HydrateContext<TabState>>
                     </Router>
                 </HydrateContext<SecureUserData>>
-            </HydrateContext<ProfileState>>
         </div>
     }
 }

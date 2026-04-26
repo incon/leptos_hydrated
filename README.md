@@ -69,16 +69,16 @@ impl Hydratable for ThemeState {
 
 ### 2. Choose your hydration strategy
 
-#### `HydrateState` (Global State)
+#### `HydrateContext` (Global & Scoped State)
 
-Provides global state via context. Place it anywhere in your view tree.
+Provides state via context. Place it anywhere in your view tree. If it wraps children, it scopes the state to those children. If `global=true` is set (or no children are provided), it acts as a global provider.
 
 ```rust
 #[component]
 pub fn App() -> impl IntoView {
     view! {
         // 1. Provide state anywhere in the tree
-        <HydrateState<ThemeState> />
+        <HydrateContext<ThemeState> global=true />
         
         <MainContent />
     }
@@ -94,9 +94,9 @@ fn MainContent() -> impl IntoView {
 }
 ```
 
-#### `HydrateContext` (Scoped State)
+### Scoping State
 
-Provides scoped state to a specific branch of the component tree.
+You can provide scoped state to a specific branch of the component tree by passing children.
 
 ```rust
 #[component]

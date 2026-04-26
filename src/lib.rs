@@ -58,7 +58,7 @@
 //! pub fn App() -> impl IntoView {
 //!     view! {
 //!         // 1. Provide state anywhere in the tree
-//!         <HydrateState<ThemeState> />
+//!         <HydrateContext<ThemeState> global=true />
 //!         
 //!         <MainContent />
 //!     }
@@ -78,7 +78,18 @@
 //!
 //! In order for isomorphic helpers to access request data on the server, you **must** use `.leptos_routes_with_context` in your Axum server setup and call `provide_hydration_context()`.
 //!
-//! ```rust,ignore
+//! ```rust,no_run
+//! # #[cfg(feature = "ssr")]
+//! # {
+//! # use axum::Router;
+//! # use leptos::prelude::*;
+//! # use leptos_axum::LeptosRoutes;
+//! # #[component] fn App() -> impl IntoView { view! { "" } }
+//! # #[component] fn Shell() -> impl IntoView { view! { "" } }
+//! # use leptos_axum::AxumRouteListing;
+//! # let leptos_options = LeptosOptions::builder().output_name("app").build();
+//! # let routes = Vec::<AxumRouteListing>::new();
+//! # let app: Router<LeptosOptions> = Router::new()
 //! .leptos_routes_with_context(
 //!     &leptos_options,
 //!     routes,
@@ -86,8 +97,10 @@
 //!         // This initializes the hydration store from the current request
 //!         leptos_hydrated::provide_hydration_context();
 //!     },
-//!     move || shell(),
+//!     move || Shell(),
 //! )
+//! # ;
+//! # }
 //! ```
 //!
 //! ## Environment Macros
@@ -100,7 +113,6 @@
 //! ## PWA & "Born Offline" Support
 //!
 //! `leptos_hydrated` supports PWAs loading from an offline shell (CSR mode) by detecting the mounting mode in your `lib.rs` and providing it via context to your components.
-
 
 mod accessors;
 mod components;
