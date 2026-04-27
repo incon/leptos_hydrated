@@ -1,18 +1,19 @@
-use crate::states::{ProfileState, ToggleLoginServer, ToggleThemeServer};
+use crate::states::{ProfileState, ThemeState, ToggleLoginServer, ToggleThemeServer};
 use leptos::form::ActionForm;
 use leptos::prelude::*;
-use leptos_hydrated::use_hydrated;
+use leptos_hydrated::{hydrated_signal, Hydratable};
 
 #[component]
 pub fn Header() -> impl IntoView {
-    let profile_state = use_hydrated::<ProfileState>();
+    let profile_state = hydrated_signal(ProfileState::initial());
+    let theme_state = hydrated_signal(ThemeState::initial());
     let toggle_theme = ServerAction::<ToggleThemeServer>::new();
     let toggle_login = ServerAction::<ToggleLoginServer>::new();
 
     // Update theme reactively when action completes
     Effect::new(move |_| {
         if let Some(Ok(new_state)) = toggle_theme.value().get() {
-            profile_state.set(new_state);
+            theme_state.set(new_state);
         }
     });
 
@@ -30,7 +31,7 @@ pub fn Header() -> impl IntoView {
                 <ActionForm action=toggle_theme>
                     <button type="submit" class="btn btn-secondary">
                         "Switch to "
-                        {move || if profile_state.get().theme == "dark" { "Light" } else { "Dark" }}
+                        {move || if theme_state.get().0 == "dark" { "Light" } else { "Dark" }}
                     </button>
                 </ActionForm>
                 <ActionForm action=toggle_login>

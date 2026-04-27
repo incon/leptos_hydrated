@@ -17,12 +17,20 @@ pub fn hydrate() {
     if !has_ui {
         leptos::logging::log!("Mounting app (CSR)...");
         leptos::mount::mount_to_body(move || {
-            leptos::view! { <Pwa was_hydrated=false><App /></Pwa> }
+            leptos::view! {
+                <Pwa was_hydrated=false>
+                    <App />
+                </Pwa>
+            }
         });
     } else {
         leptos::logging::log!("Hydrating app...");
         leptos::mount::hydrate_body(move || {
-            leptos::view! { <Pwa was_hydrated=true><App /></Pwa> }
+            leptos::view! {
+                <Pwa was_hydrated=true>
+                    <App />
+                </Pwa>
+            }
         });
     }
 }

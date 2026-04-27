@@ -58,7 +58,7 @@
 //! pub fn App() -> impl IntoView {
 //!     view! {
 //!         // 1. Provide state anywhere in the tree
-//!         <HydrateContext<ThemeState> global=true />
+//!         <HydratedContext<ThemeState> global=true />
 //!         
 //!         <MainContent />
 //!     }
@@ -67,7 +67,7 @@
 //! #[component]
 //! fn MainContent() -> impl IntoView {
 //!     // 2. Consume it anywhere in the tree
-//!     let state = use_hydrated::<ThemeState>();
+//!     let state = hydrated_signal(ThemeState::initial());
 //!     view! {
 //!         <p>"Theme: " {move || state.get().theme}</p>
 //!     }
@@ -121,11 +121,9 @@ mod helpers;
 mod macros;
 mod traits;
 
-pub use accessors::*;
+pub use accessors::Hydrated;
 pub use components::*;
-#[cfg(not(feature = "ssr"))]
-pub use core::get_injected_state;
-pub use core::{HydratedSignal, use_hydrate_signal};
+pub use core::{HydrateSignal, use_hydrated_context, hydrated_signal, InjectedStates};
 #[allow(unused_imports)]
 pub use helpers::*;
 #[allow(unused_imports)]

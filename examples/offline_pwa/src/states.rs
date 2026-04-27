@@ -1,8 +1,6 @@
 #![allow(unused_imports)]
 use leptos::context::use_context;
 use leptos::prelude::{RwSignal, Update};
-#[cfg(not(feature = "ssr"))]
-use leptos_hydrated::get_injected_state;
 use leptos_hydrated::isomorphic;
 use leptos_hydrated::*;
 use serde::{Deserialize, Serialize};
@@ -28,9 +26,6 @@ impl Hydratable for TodoState {
         isomorphic! {
             state => Self::default(),
             hydrate => {
-                // Check if the server sent any state (e.g. from a shared link)
-                let from_server = get_injected_state::<Self>();
-
                 // On client, try to restore from localStorage (sync)
                 leptos::logging::log!("LocalStorage: Restoring todos state...");
                 let storage_val = (|| {
@@ -43,7 +38,7 @@ impl Hydratable for TodoState {
                         .and_then(|js_val| serde_wasm_bindgen::from_value(js_val).ok())
                 })();
 
-                storage_val.or(from_server).unwrap_or_default()
+                storage_val.unwrap_or_default()
             }
         }
     }

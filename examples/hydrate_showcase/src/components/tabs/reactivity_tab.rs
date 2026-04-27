@@ -2,11 +2,11 @@ use crate::components::{TabPanel, UpdateProfileForm};
 use crate::states::{ProfileState, ToggleLoginServer, UpdateProfile};
 use leptos::form::ActionForm;
 use leptos::prelude::*;
-use leptos_hydrated::use_hydrated;
+use leptos_hydrated::{hydrated_signal, Hydratable};
 
 #[component]
 pub fn ReactivityTab(tab: &'static str) -> impl IntoView {
-    let profile_state = use_hydrated::<ProfileState>();
+    let profile_state = hydrated_signal(ProfileState::initial());
     let update_profile_action = ServerAction::<UpdateProfile>::new();
     let toggle_login = ServerAction::<ToggleLoginServer>::new();
 
@@ -38,12 +38,9 @@ pub fn ReactivityTab(tab: &'static str) -> impl IntoView {
                             <>
                                 <p>
                                     "Update your profile data using this form. The default values are pre-populated from the "
-                                    <strong>"HydrateContext"</strong> " state."
+                                    <strong>"HydratedContext"</strong> " state."
                                 </p>
-                                <UpdateProfileForm
-                                    action=update_profile_action
-                                    profile=s.profile
-                                />
+                                <UpdateProfileForm action=update_profile_action profile=s.profile />
                                 <p class="note">
                                     "After submitting, the state will be updated reactively in the UI and synchronized with your session cookie."
                                 </p>

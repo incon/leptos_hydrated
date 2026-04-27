@@ -1,13 +1,13 @@
 use crate::components::TabPanel;
 use crate::states::ReferralState;
 use leptos::prelude::*;
-use leptos_hydrated::use_hydrated;
+use leptos_hydrated::{hydrated_signal, Hydratable};
 use leptos_router::components::A;
 use leptos_router::hooks::query_signal;
 
 #[component]
 pub fn ParamsTab(tab: &'static str) -> impl IntoView {
-    let referral_state = use_hydrated::<ReferralState>();
+    let referral_state = hydrated_signal(ReferralState::initial());
     let (_, _set_ref_query) = query_signal::<String>("ref");
 
     view! {

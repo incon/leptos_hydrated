@@ -1,10 +1,9 @@
 use super::*;
 #[cfg(not(feature = "ssr"))]
-use crate::core::get_injected_state;
+use crate::core::get_hydration_counter;
+use crate::core::create_hydrated_signal_internal;
 #[cfg(feature = "ssr")]
 use crate::core::serialize_for_injection;
-#[cfg(feature = "ssr")]
-use crate::core::type_hydration_id;
 use leptos::prelude::*;
 use leptos::reactive::owner::Owner;
 use serde::{Deserialize, Serialize};
@@ -19,6 +18,13 @@ fn init_test_env() {
     INIT.call_once(|| {
         let _ = any_spawner::Executor::init_tokio();
     });
+}
+
+fn use_hydrate_signal<T>() -> (RwSignal<T>, LocalResource<Option<T>>)
+where
+    T: Hydratable + Clone + Send + Sync + serde::Serialize + serde::de::DeserializeOwned + 'static,
+{
+    create_hydrated_signal_internal(T::initial)
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Debug)]
@@ -66,7 +72,7 @@ impl Hydratable for SlowState {
 }
 
 // ---------------------------------------------------------------------------
-// Mechanism tests: use_hydrate_signal
+// Mechanism tests: create_hydrated_signal_internal
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -181,7 +187,7 @@ async fn test_ssr_resource_is_muted() {
 
 #[component]
 fn MainContent() -> impl IntoView {
-    let state = use_hydrated::<ThemeState>();
+    let state = hydrated_signal(ThemeState::initial());
     view! { <p>"Theme: " {move || state.get().theme}</p> }
 }
 
@@ -194,7 +200,7 @@ async fn test_hydrate_context_global_provides_context() {
             let owner = Owner::new_root(None);
             owner.with(|| {
                 let _ = view! {
-                    <HydrateContext<ThemeState> global=true />
+                    <HydratedContext<ThemeState> global=true />
                     <MainContent />
                 };
             });
@@ -204,7 +210,7 @@ async fn test_hydrate_context_global_provides_context() {
 
 #[component]
 fn ScopedDisplay() -> impl IntoView {
-    let state = use_hydrated::<ThemeState>();
+    let state = hydrated_signal(ThemeState::initial());
     view! { <p>"Scoped: " {move || state.get().theme}</p> }
 }
 
@@ -217,9 +223,9 @@ async fn test_hydrate_context_provides_context_to_children() {
             let owner = Owner::new_root(None);
             owner.with(|| {
                 let _ = view! {
-                    <HydrateContext<ThemeState>>
+                    <HydratedContext<ThemeState>>
                         <ScopedDisplay />
-                    </HydrateContext<ThemeState>>
+                    </HydratedContext<ThemeState>>
                 };
             });
         })
@@ -230,40 +236,49 @@ async fn test_hydrate_context_provides_context_to_children() {
 // HydratedSignal wrapper
 // ---------------------------------------------------------------------------
 
-#[test]
-fn test_hydrated_signal_wrapper_eq_and_debug() {
-    let owner = Owner::new_root(None);
-    owner.with(|| {
-        let s = RwSignal::new(42);
-        let h1 = HydratedSignal(s);
-        let h2 = h1;
-        assert_eq!(h1, h2);
-        assert!(format!("{:?}", h1).contains("HydratedSignal"));
-    });
+#[tokio::test]
+async fn test_hydrated_signal_wrapper_eq_and_debug() {
+    init_test_env();
+    let local = tokio::task::LocalSet::new();
+    local.run_until(async {
+        let owner = Owner::new_root(None);
+        owner.with(|| {
+            let h1 = use_hydrated_context::<DefaultState>();
+            let h2 = h1;
+            assert_eq!(h1, h2);
+            assert!(format!("{:?}", h1).contains("HydrateSignal"));
+        });
+    }).await;
 }
 
 // ---------------------------------------------------------------------------
 // try_ accessors
 // ---------------------------------------------------------------------------
 
-#[test]
-fn test_try_use_hydrated_returns_some_when_context_exists() {
-    let owner = Owner::new_root(None);
-    owner.with(|| {
-        provide_context(HydratedSignal(RwSignal::new(ThemeState {
-            theme: "dark".into(),
-        })));
-        let result = try_use_hydrated::<ThemeState>();
-        assert!(result.is_some());
-        assert_eq!(result.unwrap().get_untracked().theme, "dark");
-    });
+#[tokio::test]
+async fn test_try_use_hydrated_returns_some_when_context_exists() {
+    init_test_env();
+    let local = tokio::task::LocalSet::new();
+    local.run_until(async {
+        let owner = Owner::new_root(None);
+        owner.with(|| {
+            let signal = RwSignal::new(ThemeState {
+                theme: "dark".into(),
+            });
+            let resource = LocalResource::new(|| async { None });
+            provide_context(HydrateSignal { signal, resource });
+            let result = Hydrated::<ThemeState>::try_get();
+            assert!(result.is_some());
+            assert_eq!(result.unwrap().get_untracked().theme, "dark");
+        });
+    }).await;
 }
 
 #[test]
 fn test_try_use_hydrated_returns_none_when_no_context() {
     let owner = Owner::new_root(None);
     owner.with(|| {
-        assert!(try_use_hydrated::<ThemeState>().is_none());
+        assert!(Hydrated::<ThemeState>::try_get().is_none());
     });
 }
 
@@ -271,7 +286,7 @@ fn test_try_use_hydrated_returns_none_when_no_context() {
 fn test_try_use_hydrated_resource_returns_none_when_no_context() {
     let owner = Owner::new_root(None);
     owner.with(|| {
-        assert!(try_use_hydrated_resource::<ThemeState>().is_none());
+        assert!(Hydrated::<ThemeState>::try_resource().is_none());
     });
 }
 
@@ -412,9 +427,6 @@ fn test_serialize_for_injection_internal() {
     };
     let json = serialize_for_injection(&state);
     assert_eq!(json, r#"{"theme":"dark"}"#);
-
-    let id = type_hydration_id::<ThemeState>();
-    assert!(id.contains("ThemeState"));
 }
 
 #[tokio::test]
@@ -427,13 +439,17 @@ async fn test_hydratable_initial_is_called() {
 // Panic tests
 // ---------------------------------------------------------------------------
 
-#[test]
-#[should_panic(expected = "HydratedSignal<i32> not found")]
-fn test_use_hydrated_panics_without_context() {
-    let owner = Owner::new_root(None);
-    owner.with(|| {
-        let _ = use_hydrated::<i32>();
-    });
+#[tokio::test]
+async fn test_hydrated_signal_creates_local_when_no_context() {
+    init_test_env();
+    let local = tokio::task::LocalSet::new();
+    local.run_until(async {
+        let owner = Owner::new_root(None);
+        owner.with(|| {
+            let sig = hydrated_signal(DefaultState::initial());
+            assert_eq!(sig.get_untracked().value, 0);
+        });
+    }).await;
 }
 
 #[test]
@@ -441,7 +457,7 @@ fn test_use_hydrated_panics_without_context() {
 fn test_use_hydrated_resource_panics_without_context() {
     let owner = Owner::new_root(None);
     owner.with(|| {
-        let _ = use_hydrated_resource::<i32>();
+        let _ = Hydrated::<i32>::resource();
     });
 }
 
@@ -480,20 +496,6 @@ fn test_isomorphic_macro_branches_correctly() {
 }
 
 #[cfg(not(feature = "ssr"))]
-#[tokio::test]
-async fn test_get_injected_state_returns_none_when_empty() {
-    init_test_env();
-    let local = tokio::task::LocalSet::new();
-    local
-        .run_until(async {
-            let owner = Owner::new_root(None);
-            owner.with(|| {
-                // Should be None because we haven't injected anything into the "DOM" (mocked)
-                assert!(get_injected_state::<DefaultState>().is_none());
-            });
-        })
-        .await;
-}
 
 // ---------------------------------------------------------------------------
 // Coverage gap: get_query_param without Parts context (falls to mock_state)
@@ -624,3 +626,48 @@ async fn test_should_sync_on_client_false_skips_rerun() {
         })
         .await;
 }
+
+// ---------------------------------------------------------------------------
+// hydrated_signal tests
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn test_hydrated_signal_auto_id_ssr() {
+    init_test_env();
+    let states = InjectedStates::default();
+    let mut parts = http::request::Request::builder().body(()).unwrap().into_parts().0;
+    parts.extensions.insert(states.clone());
+    
+    let owner = Owner::new_root(None);
+    owner.with(|| {
+        provide_context(parts);
+        let _ = hydrated_signal(DefaultState::initial());
+        let _ = hydrated_signal(DefaultState::initial());
+    });
+    
+    let guard = states.0.lock().unwrap();
+    assert_eq!(guard.len(), 2);
+    assert_eq!(guard[0].0, "0");
+    assert_eq!(guard[0].1, "42");
+    assert_eq!(guard[1].0, "1");
+    assert_eq!(guard[1].1, "100");
+}
+
+#[cfg(not(feature = "ssr"))]
+#[tokio::test]
+async fn test_hydrated_signal_counter_client() {
+    init_test_env();
+    let local = tokio::task::LocalSet::new();
+    local.run_until(async {
+        let owner = Owner::new_root(None);
+        owner.with(|| {
+            let _ = hydrated_signal(DefaultState::initial());
+            let _ = hydrated_signal(DefaultState::initial());
+            
+            let counter = get_hydration_counter();
+            assert_eq!(*counter.0.lock().unwrap(), 2);
+        });
+    }).await;
+}
+

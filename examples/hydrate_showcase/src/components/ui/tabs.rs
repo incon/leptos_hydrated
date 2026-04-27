@@ -1,18 +1,22 @@
 use leptos::prelude::*;
 use leptos_router::{components::*, hooks::query_signal};
-use leptos_hydrated::use_hydrated;
+use leptos_hydrated::{hydrated_signal, Hydratable};
 use crate::states::{TabState, ReferralState};
 
 #[component]
 pub fn TabPanel(tab: &'static str, children: Children) -> impl IntoView {
-    let tab_state = use_hydrated::<TabState>();
+    let tab_state = hydrated_signal(TabState::initial());
     
     view! {
         <div
             class=format!("{}-content", tab)
             style=move || {
                 let current = tab_state.get().0;
-                if current == tab || (tab == "cookie" && (current != "params" && current != "reactivity" && current != "httponly")) {
+                if current == tab
+                    || (tab == "cookie"
+                        && (current != "params" && current != "reactivity"
+                            && current != "httponly"))
+                {
                     "display: contents"
                 } else {
                     "display: none"
@@ -26,8 +30,8 @@ pub fn TabPanel(tab: &'static str, children: Children) -> impl IntoView {
 
 #[component]
 pub fn Tabs(children: Children) -> impl IntoView {
-    let tab_state = use_hydrated::<TabState>();
-    let referral_state = use_hydrated::<ReferralState>();
+    let tab_state = hydrated_signal(TabState::initial());
+    let referral_state = hydrated_signal(ReferralState::initial());
 
     let (tab_query, _) = query_signal::<String>("tab");
     let (ref_query, _) = query_signal::<String>("ref");
@@ -80,14 +84,15 @@ pub fn Tabs(children: Children) -> impl IntoView {
             <A
                 href="?tab=httponly"
                 attr:class=move || {
-                    format!("tab-btn {}", if tab_state.get().0 == "httponly" { "active" } else { "" })
+                    format!(
+                        "tab-btn {}",
+                        if tab_state.get().0 == "httponly" { "active" } else { "" },
+                    )
                 }
             >
                 "HTTP-only"
             </A>
         </div>
-        <div class="dashboard-grid">
-            {children()}
-        </div>
+        <div class="dashboard-grid">{children()}</div>
     }
 }

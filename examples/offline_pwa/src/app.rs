@@ -39,31 +39,29 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
         <!DOCTYPE html>
         <html lang="en">
             <head>
-                <meta charset="utf-8"/>
-                <meta name="viewport" content="width=device-width, initial-scale=1"/>
+                <meta charset="utf-8" />
+                <meta name="viewport" content="width=device-width, initial-scale=1" />
                 <meta name="theme-color" content="#ffffff" />
-                <Title text="Offline Todo"/>
+                <Title text="Offline Todo" />
                 <link rel="icon" type="image/svg+xml" href=format!("/icon.svg?v={version}") />
                 <link rel="manifest" href="/manifest.json" />
                 <HydrationScripts options=options.clone() />
-                <MetaTags/>
-                <Stylesheet id="leptos" href="/pkg/offline_pwa.css"/>
+                <MetaTags />
+                <Stylesheet id="leptos" href="/pkg/offline_pwa.css" />
                 <script>
                     "if ('serviceWorker' in navigator) {
                         navigator.serviceWorker.register('/sw.js');
                     }"
                 </script>
+                {#[cfg(all(debug_assertions, feature = "ssr"))]
                 {
-                    #[cfg(all(debug_assertions, feature = "ssr"))]
-                    {
-                        let is_online = OnlineState::initial().online;
-                        is_online.then(|| view! { <AutoReload options=options /> })
-                    }
-                }
+                    let is_online = OnlineState::initial().online;
+                    is_online.then(|| view! { <AutoReload options=options /> })
+                }}
             </head>
             <body>
                 <Pwa was_hydrated=true>
-                    <App/>
+                    <App />
                 </Pwa>
             </body>
         </html>
@@ -81,33 +79,41 @@ pub fn App() -> impl IntoView {
     provide_meta_context();
 
     view! {
-        <HydrateContext<OnlineState>>
+        <HydratedContext<OnlineState> global=true>
             <div id="app-root">
                 <OnlineStatus />
                 <div class="app-container">
-                    <HydrateContext<TodoState>>
+                    <HydratedContext<TodoState> global=true>
                         <TodoPersistence />
                         <Router>
                             <main>
                                 <Routes fallback=|| "Page not found.".into_view()>
                                     <Route path=StaticSegment("") view=TodoPage />
-                                    <Route path=(StaticSegment("todo"), ParamSegment("id")) view=TodoDetailsPage />
+                                    <Route
+                                        path=(StaticSegment("todo"), ParamSegment("id"))
+                                        view=TodoDetailsPage
+                                    />
                                 </Routes>
                             </main>
                         </Router>
-                    </HydrateContext<TodoState>>
+                    </HydratedContext<TodoState>>
                 </div>
             </div>
-        </HydrateContext<OnlineState>>
+        </HydratedContext<OnlineState>>
     }
 }
 
 #[component]
 fn OnlineStatus() -> impl IntoView {
-    let online = use_hydrated::<OnlineState>();
+    let online = hydrated_signal(OnlineState::initial());
 
     view! {
-        <div id="online-status" class=move || format!("status-banner {}", if online.get().online { "online" } else { "offline" })>
+        <div
+            id="online-status"
+            class=move || {
+                format!("status-banner {}", if online.get().online { "online" } else { "offline" })
+            }
+        >
             <span class="online-text">"● Online"</span>
             <span class="offline-text">"○ Offline - Using local storage"</span>
         </div>
@@ -118,7 +124,7 @@ fn OnlineStatus() -> impl IntoView {
 fn TodoPersistence() -> impl IntoView {
     #[cfg(not(feature = "ssr"))]
     Effect::new(move |_| {
-        let state = use_hydrated::<TodoState>();
+        let state = hydrated_signal(TodoState::initial());
         let current = state.get();
 
         if let Ok(js_val) = serde_wasm_bindgen::to_value(&current) {
@@ -136,7 +142,7 @@ fn TodoPersistence() -> impl IntoView {
 
 #[component]
 fn TodoPage() -> impl IntoView {
-    let state = use_hydrated::<TodoState>();
+    let state = hydrated_signal(TodoState::initial());
     let new_todo = RwSignal::new(String::new());
     let new_description = RwSignal::new(String::new());
 
@@ -163,7 +169,9 @@ fn TodoPage() -> impl IntoView {
         <div class="todo-page">
             <div class="header-section">
                 <h1>"Offline Todo"</h1>
-                <p class="subtitle">"State is persisted to IndexedDB and works offline via Service Workers."</p>
+                <p class="subtitle">
+                    "State is persisted to IndexedDB and works offline via Service Workers."
+                </p>
             </div>
 
             <div class="card form-card">
@@ -189,7 +197,9 @@ fn TodoPage() -> impl IntoView {
                             on:input=move |ev| new_description.set(event_target_value(&ev))
                         />
                     </div>
-                    <button type="submit" class="submit-button">"Add Task"</button>
+                    <button type="submit" class="submit-button">
+                        "Add Task"
+                    </button>
                 </form>
             </div>
 
@@ -197,40 +207,49 @@ fn TodoPage() -> impl IntoView {
                 <h2>"Todos"</h2>
                 <Show
                     when=move || !state.get().todos.is_empty()
-                    fallback=|| view! {
-                        <div class="empty-state">
-                            <p>"You have no todos yet. Add one above!"</p>
-                        </div>
+                    fallback=|| {
+                        view! {
+                            <div class="empty-state">
+                                <p>"You have no todos yet. Add one above!"</p>
+                            </div>
+                        }
                     }
                 >
                     <ul class="todo-list">
-                    <For
-                        each=move || state.get().todos
-                        key=|todo| todo.id
-                        let:todo
-                    >
-                        <li class=move || if todo.completed { "completed" } else { "" }>
-                            <input
-                                type="checkbox"
-                                prop:checked=todo.completed
-                                on:change=move |_| {
-                                    state.update(|s| {
-                                        if let Some(t) = s.todos.iter_mut().find(|t| t.id == todo.id) {
-                                            t.completed = !t.completed;
-                                        }
-                                    });
-                                }
-                            />
-                            <A href=move || format!("/todo/{}", todo.id)>
-                                <span>{todo.title}</span>
-                            </A>
-                            <button class="delete-btn" on:click=move |_| {
-                                state.update(|s| {
-                                    s.todos.retain(|t| t.id != todo.id);
-                                });
-                            }>"×"</button>
-                        </li>
-                    </For>
+                        <For each=move || state.get().todos key=|todo| todo.id let:todo>
+                            <li class=move || if todo.completed { "completed" } else { "" }>
+                                <input
+                                    type="checkbox"
+                                    prop:checked=todo.completed
+                                    on:change=move |_| {
+                                        state
+                                            .update(|s| {
+                                                if let Some(t) = s
+                                                    .todos
+                                                    .iter_mut()
+                                                    .find(|t| t.id == todo.id)
+                                                {
+                                                    t.completed = !t.completed;
+                                                }
+                                            });
+                                    }
+                                />
+                                <A href=move || format!("/todo/{}", todo.id)>
+                                    <span>{todo.title}</span>
+                                </A>
+                                <button
+                                    class="delete-btn"
+                                    on:click=move |_| {
+                                        state
+                                            .update(|s| {
+                                                s.todos.retain(|t| t.id != todo.id);
+                                            });
+                                    }
+                                >
+                                    "×"
+                                </button>
+                            </li>
+                        </For>
                     </ul>
                 </Show>
             </div>
@@ -246,7 +265,7 @@ struct TodoParams {
 #[component]
 fn TodoDetailsPage() -> impl IntoView {
     let params = use_params::<TodoParams>();
-    let state = use_hydrated::<TodoState>();
+    let state = hydrated_signal(TodoState::initial());
 
     let todo = move || {
         params
@@ -259,25 +278,43 @@ fn TodoDetailsPage() -> impl IntoView {
         <div class="todo-details">
             <A href="/">"← Back to List"</A>
             {move || match todo() {
-                Some(todo) => Either::Left(view! {
-                    <div class="card">
-                        <h1>{todo.title}</h1>
-                        <p class="status">
-                            {if todo.completed { "✅ Completed" } else { "⏳ In Progress" }}
-                        </p>
-                        <hr />
-                        <div class="description">
-                            <h3>"Description"</h3>
-                            <p>{if todo.description.is_empty() { "No description provided.".to_string() } else { todo.description }}</p>
-                        </div>
-                    </div>
-                }),
-                None => Either::Right(view! {
-                    <div class="error">
-                        <h1>"Todo Not Found"</h1>
-                        <p>"The todo with the requested ID does not exist."</p>
-                    </div>
-                })
+                Some(todo) => {
+                    Either::Left(
+                        view! {
+                            <div class="card">
+                                <h1>{todo.title}</h1>
+                                <p class="status">
+                                    {if todo.completed {
+                                        "✅ Completed"
+                                    } else {
+                                        "⏳ In Progress"
+                                    }}
+                                </p>
+                                <hr />
+                                <div class="description">
+                                    <h3>"Description"</h3>
+                                    <p>
+                                        {if todo.description.is_empty() {
+                                            "No description provided.".to_string()
+                                        } else {
+                                            todo.description
+                                        }}
+                                    </p>
+                                </div>
+                            </div>
+                        },
+                    )
+                }
+                None => {
+                    Either::Right(
+                        view! {
+                            <div class="error">
+                                <h1>"Todo Not Found"</h1>
+                                <p>"The todo with the requested ID does not exist."</p>
+                            </div>
+                        },
+                    )
+                }
             }}
         </div>
     }

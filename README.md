@@ -69,7 +69,7 @@ impl Hydratable for ThemeState {
 
 ### 2. Choose your hydration strategy
 
-#### `HydrateContext` (Global & Scoped State)
+#### `HydratedContext` (Global & Scoped State)
 
 Provides state via context. Place it anywhere in your view tree. If it wraps children, it scopes the state to those children. If `global=true` is set (or no children are provided), it acts as a global provider.
 
@@ -78,7 +78,7 @@ Provides state via context. Place it anywhere in your view tree. If it wraps chi
 pub fn App() -> impl IntoView {
     view! {
         // 1. Provide state anywhere in the tree
-        <HydrateContext<ThemeState> global=true />
+        <HydratedContext<ThemeState> global=true />
         
         <MainContent />
     }
@@ -87,7 +87,7 @@ pub fn App() -> impl IntoView {
 #[component]
 fn MainContent() -> impl IntoView {
     // 2. Consume it anywhere in the tree
-    let state = use_hydrated::<ThemeState>();
+    let state = hydrated_signal(ThemeState::initial());
     view! {
         <p>"Theme: " {move || state.get().theme}</p>
     }
@@ -102,9 +102,9 @@ You can provide scoped state to a specific branch of the component tree by passi
 #[component]
 fn ProfileSection() -> impl IntoView {
     view! {
-        <HydrateContext<UserState>>
+        <HydratedContext<UserState>>
             <ProfileInfo />
-        </HydrateContext<UserState>>
+        </HydratedContext<UserState>>
     }
 }
 ```

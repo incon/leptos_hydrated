@@ -13,6 +13,57 @@ async fn main() {
     // Generate the list of routes in your Leptos App
     let routes = generate_route_list(App);
 
+    async fn inject_logic(
+        mut req: axum::extract::Request,
+        next: axum::middleware::Next,
+    ) -> axum::response::Response {
+        use leptos_hydrated::InjectedStates;
+        let states = InjectedStates::default();
+        req.extensions_mut().insert(states.clone());
+        
+        let res = next.run(req).await;
+        
+        let injected = states.0.lock().unwrap().clone();
+        if injected.is_empty() {
+            return res;
+        }
+        
+        let (mut parts, body) = res.into_parts();
+        
+        let is_html = parts.headers.get(axum::http::header::CONTENT_TYPE)
+            .map(|v| v.to_str().unwrap_or("").contains("text/html"))
+            .unwrap_or(false);
+            
+        if !is_html {
+            return axum::response::Response::from_parts(parts, body);
+        }
+        
+        let bytes = match axum::body::to_bytes(body, usize::MAX).await {
+            Ok(b) => b,
+            Err(_) => return axum::response::Response::from_parts(parts, axum::body::Body::empty()),
+        };
+        
+        let mut html = String::from_utf8_lossy(&bytes).into_owned();
+        
+        let mut scripts = String::new();
+        for (id, json) in injected {
+            scripts.push_str(&format!("<script id=\"__lh_{}\" type=\"application/json\">{}</script>", id, json));
+        }
+        
+        if let Some(idx) = html.find("</body>") {
+            html.insert_str(idx, &scripts);
+        } else {
+            html.push_str(&scripts);
+        }
+        
+        parts.headers.insert(
+            axum::http::header::CONTENT_LENGTH,
+            axum::http::HeaderValue::from_str(&html.len().to_string()).unwrap(),
+        );
+        
+        axum::response::Response::from_parts(parts, axum::body::Body::from(html))
+    }
+
     let app = Router::new()
         .leptos_routes_with_context(
             &leptos_options,
@@ -25,6 +76,7 @@ async fn main() {
                 move || shell(leptos_options.clone())
             },
         )
+        .layer(axum::middleware::from_fn(inject_logic))
         .fallback(leptos_axum::file_and_error_handler(shell))
         .with_state(leptos_options);
 

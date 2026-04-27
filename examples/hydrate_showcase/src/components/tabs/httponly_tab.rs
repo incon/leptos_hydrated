@@ -6,7 +6,7 @@ use leptos_hydrated::*;
 
 #[component]
 pub fn HttpOnlyTab(tab: &'static str) -> impl IntoView {
-    let secure_state = use_hydrated::<SecureUserData>();
+    let secure_state = use_hydrated_context::<SecureUserData>();
     let login_action = ServerAction::<LoginSecure>::new();
     let logout_action = ServerAction::<LogoutSecure>::new();
 
@@ -29,8 +29,9 @@ pub fn HttpOnlyTab(tab: &'static str) -> impl IntoView {
             <div class="card httponly-card">
                 <h2>"HTTP-only Cookie State"</h2>
                 <p>
-                    "This state is managed via an " <strong>"HTTP-only"</strong> " cookie. The client "
-                    <em>"cannot"</em> " read or modify this cookie via JavaScript."
+                    "This state is managed via an " <strong>"HTTP-only"</strong>
+                    " cookie. The client " <em>"cannot"</em>
+                    " read or modify this cookie via JavaScript."
                 </p>
 
                 <div class="secure-box">
@@ -43,26 +44,37 @@ pub fn HttpOnlyTab(tab: &'static str) -> impl IntoView {
                                         <span class="tier-badge">{state.tier}</span>
                                     </div>
                                     <span class="label">"Current Balance:"</span>
-                                    <span class="balance-display">{format!("${}.00", state.balance)}</span>
+                                    <span class="balance-display">
+                                        {format!("${}.00", state.balance)}
+                                    </span>
 
                                     <ActionForm action=logout_action>
-                                        <button type="submit" class="btn btn-danger"
-                                            style="margin-top: 1rem; align-self: flex-start;">
+                                        <button
+                                            type="submit"
+                                            class="btn btn-danger"
+                                            style="margin-top: 1rem; align-self: flex-start;"
+                                        >
                                             "Secure Log Out"
                                         </button>
                                     </ActionForm>
                                 </div>
-                            }.into_any()
-                        },
+                            }
+                                .into_any()
+                        }
                         None => {
                             view! {
                                 <div class="login-prompt">
-                                    <p>"No secure session active. Your balance is protected by HTTP-only cookies."</p>
+                                    <p>
+                                        "No secure session active. Your balance is protected by HTTP-only cookies."
+                                    </p>
                                     <ActionForm action=login_action>
-                                        <button type="submit" class="btn btn-primary">"Secure Log In"</button>
+                                        <button type="submit" class="btn btn-primary">
+                                            "Secure Log In"
+                                        </button>
                                     </ActionForm>
                                 </div>
-                            }.into_any()
+                            }
+                                .into_any()
                         }
                     }}
                 </div>

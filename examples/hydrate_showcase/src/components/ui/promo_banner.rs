@@ -1,10 +1,10 @@
 use leptos::prelude::*;
-use leptos_hydrated::use_hydrated;
+use leptos_hydrated::{hydrated_signal, Hydratable};
 use crate::states::ReferralState;
 
 #[component]
 pub fn PromoBanner() -> impl IntoView {
-    let state = use_hydrated::<ReferralState>();
+    let state = hydrated_signal(ReferralState::initial());
 
     view! {
         <div

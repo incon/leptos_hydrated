@@ -1,28 +1,97 @@
 use crate::traits::Hydratable;
 use leptos::prelude::*;
+use std::sync::{Arc, Mutex};
+
 #[cfg(feature = "ssr")]
-use serde::Serialize;
+use http::request::Parts;
+
+
+/// Global shared state for injected scripts.
+#[derive(Clone, Default, Debug)]
+pub struct InjectedStates(pub Arc<Mutex<Vec<(String, String)>>>);
+
+/// Counter for automatic hydration IDs on the client.
 #[cfg(not(feature = "ssr"))]
-use serde::de::DeserializeOwned;
+#[derive(Clone, Default, Debug)]
+pub(crate) struct HydrationCounter(pub Arc<Mutex<usize>>);
+
+#[cfg(not(feature = "ssr"))]
+impl HydrationCounter {
+    pub fn next(&self) -> usize {
+        let mut guard = self.0.lock().unwrap();
+        let val = *guard;
+        *guard += 1;
+        val
+    }
+}
+
+#[cfg(not(feature = "ssr"))]
+pub(crate) fn get_hydration_counter() -> HydrationCounter {
+    use_context::<HydrationCounter>().unwrap_or_else(|| {
+        let counter = HydrationCounter::default();
+        provide_context(counter.clone());
+        counter
+    })
+}
 
 /// A wrapper for a hydrated global signal provided via context.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct HydratedSignal<T: 'static>(pub RwSignal<T>);
+pub struct HydrateSignal<T: 'static> {
+    /// The underlying reactive signal.
+    pub signal: RwSignal<T>,
+    /// The resource used for synchronization.
+    pub resource: LocalResource<Option<T>>,
+}
 
-pub(crate) fn type_hydration_id<T: 'static>() -> String {
-    std::any::type_name::<T>()
-        .chars()
-        .map(|c| if c.is_alphanumeric() { c } else { '_' })
-        .collect::<String>()
+impl<T: 'static> std::fmt::Debug for HydrateSignal<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HydrateSignal")
+            .field("signal", &self.signal)
+            .finish()
+    }
+}
+
+impl<T: 'static> Clone for HydrateSignal<T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T: 'static> Copy for HydrateSignal<T> {}
+
+impl<T: 'static> PartialEq for HydrateSignal<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.signal == other.signal
+    }
+}
+
+impl<T: 'static> Eq for HydrateSignal<T> {}
+
+/// Creates a new hydrated signal with an automatically generated ID.
+/// State is injected by the `inject_logic` middleware on the server.
+/// This also sets up automatic synchronization via a `LocalResource`.
+pub fn use_hydrated_context<T>() -> HydrateSignal<T>
+where
+    T: Hydratable + Clone + Send + Sync + serde::Serialize + serde::de::DeserializeOwned + 'static,
+{
+    let (signal, resource) = create_hydrated_signal_internal(T::initial);
+    HydrateSignal { signal, resource }
+}
+
+impl<T: 'static> std::ops::Deref for HydrateSignal<T> {
+    type Target = RwSignal<T>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.signal
+    }
 }
 
 #[cfg(feature = "ssr")]
-pub(crate) fn serialize_for_injection<T: Serialize>(value: &T) -> String {
+pub(crate) fn serialize_for_injection<T: serde::Serialize>(value: &T) -> String {
     leptos::serde_json::to_string(value).unwrap_or_default()
 }
 
 #[cfg(not(feature = "ssr"))]
-pub(crate) fn read_injected_state<T: DeserializeOwned>(id: &str) -> Option<T> {
+pub(crate) fn read_injected_state<T: serde::de::DeserializeOwned>(id: &str) -> Option<T> {
     #[cfg(all(target_arch = "wasm32", feature = "hydrate"))]
     {
         use js_sys::JSON;
@@ -53,18 +122,26 @@ pub(crate) fn read_injected_state<T: DeserializeOwned>(id: &str) -> Option<T> {
     }
 }
 
-/// Returns the value that was injected by the server for a specific type.
+
+/// The core hook for creating a hydrated signal.
 ///
-/// This is useful on the client inside `initial()` to merge server state with
-/// local state (like localStorage).
-#[cfg(not(feature = "ssr"))]
-#[allow(dead_code)]
-pub fn get_injected_state<T>() -> Option<T>
+/// This hook automatically manages signal hydration from a `LocalResource`
+/// that calls `T::initial()`.
+///
+/// Creates a new hydrated signal or retrieves one from context.
+///
+/// This is the primary entry point for hydrated state. If a `HydrateSignal<T>`
+/// is found in the current context (provided by `HydratedContext`), it will be returned.
+/// Otherwise, a new hydrated signal is created with the provided fallback value.
+pub fn hydrated_signal<T>(fallback: T) -> RwSignal<T>
 where
-    T: crate::traits::Hydratable,
+    T: Hydratable + Clone + Send + Sync + serde::Serialize + serde::de::DeserializeOwned + 'static,
 {
-    let id = type_hydration_id::<T>();
-    read_injected_state::<T>(&id)
+    if let Some(s) = use_context::<HydrateSignal<T>>() {
+        s.signal
+    } else {
+        create_hydrated_signal_internal(|| fallback).0
+    }
 }
 
 /// The core hook for creating a hydrated signal.
@@ -73,21 +150,37 @@ where
 /// that calls `T::initial()`.
 ///
 /// Returns `(RwSignal<T>, LocalResource<Option<T>>)`
-pub fn use_hydrate_signal<T>() -> (RwSignal<T>, LocalResource<Option<T>>)
+pub(crate) fn create_hydrated_signal_internal<T, F>(
+    fallback: F,
+) -> (RwSignal<T>, LocalResource<Option<T>>)
 where
-    T: Hydratable + PartialEq,
+    T: Hydratable + Clone + Send + Sync + serde::Serialize + serde::de::DeserializeOwned + 'static,
+    F: FnOnce() -> T + 'static,
 {
     #[cfg(not(feature = "ssr"))]
-    let (initial_val, _is_injected) = {
-        let id = type_hydration_id::<T>();
+    let initial_val = {
+        let counter = get_hydration_counter();
+        let id = counter.next().to_string();
         let injected = read_injected_state::<T>(&id);
-        let is_inj = injected.is_some();
-        let val = injected.unwrap_or_else(T::initial);
-        (val, is_inj)
+        injected.unwrap_or_else(fallback)
     };
 
     #[cfg(feature = "ssr")]
-    let (initial_val, _is_injected) = (T::initial(), false);
+    let initial_val = {
+        let val = fallback();
+
+        // Push to injected states to be picked up by the inject_logic middleware
+        if let Some(parts) = leptos::prelude::use_context::<Parts>() {
+            if let Some(states) = parts.extensions.get::<InjectedStates>() {
+                if let Ok(mut states_guard) = states.0.lock() {
+                    let id = states_guard.len().to_string();
+                    let json = serialize_for_injection(&val);
+                    states_guard.push((id, json));
+                }
+            }
+        }
+        val
+    };
 
     let signal = RwSignal::new(initial_val.clone());
     let first_run = StoredValue::new(true);
@@ -101,7 +194,6 @@ where
                 first_run.set_value(false);
 
                 // On the client, check if we should skip the synchronization re-run.
-                // This is crucial for HttpOnly cookies which are invisible to JS.
                 #[cfg(not(feature = "ssr"))]
                 if !T::should_sync_on_client() {
                     return None;
@@ -131,3 +223,4 @@ where
 
     (signal, resource)
 }
+

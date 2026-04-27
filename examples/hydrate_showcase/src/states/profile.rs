@@ -5,22 +5,11 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Default, Serialize, Deserialize, Debug, PartialEq)]
 pub struct ProfileState {
-    pub theme: String,
     pub is_authenticated: bool,
     pub profile: Option<UserProfile>,
 }
 
 impl ProfileState {
-    pub fn toggle_theme(state: RwSignal<Self>) {
-        state.update(|s| {
-            let new_theme = if s.theme == "dark" { "light" } else { "dark" };
-            s.theme = new_theme.to_string();
-            client_only! {
-                set_cookie("theme", &new_theme, "; path=/; max-age=31536000");
-            };
-        });
-    }
-
     pub fn toggle_login(state: RwSignal<Self>) {
         state.update(|s| {
             if s.is_authenticated {
@@ -72,14 +61,7 @@ pub struct UserProfile {
 }
 
 pub fn read_profile_state() -> ProfileState {
-    let mut theme = "light".to_string();
     let mut profile = None;
-
-    if let Some(cookie) = get_cookie("theme") {
-        if cookie == "dark" {
-            theme = "dark".to_string();
-        }
-    }
 
     if let Some(sess_cookie) = get_cookie("session") {
         #[cfg(feature = "ssr")]
@@ -104,7 +86,6 @@ pub fn read_profile_state() -> ProfileState {
 
     let is_authenticated = profile.is_some();
     ProfileState {
-        theme,
         is_authenticated,
         profile,
     }
@@ -143,14 +124,6 @@ pub async fn update_profile(name: String, role: String) -> Result<UserProfile, S
     }
 
     Ok(profile)
-}
-
-#[server]
-pub async fn toggle_theme_server() -> Result<ProfileState, ServerFnError> {
-    let theme = get_cookie("theme").unwrap_or_else(|| "light".to_string());
-    let new_theme = if theme == "dark" { "light" } else { "dark" };
-    set_cookie("theme", &new_theme, "; path=/; max-age=31536000");
-    Ok(read_profile_state())
 }
 
 #[server]
