@@ -8,7 +8,7 @@ use http::request::Parts;
 
 /// Global shared state for injected scripts.
 #[derive(Clone, Default, Debug)]
-pub struct InjectedStates(pub Arc<Mutex<Vec<(String, String)>>>);
+pub struct InjectedStates(pub Arc<Mutex<Vec<String>>>);
 
 /// Counter for automatic hydration IDs on the client.
 #[cfg(not(feature = "ssr"))]
@@ -73,7 +73,7 @@ pub fn use_hydrated_context<T>() -> HydrateSignal<T>
 where
     T: Hydratable + Clone + Send + Sync + serde::Serialize + serde::de::DeserializeOwned + 'static,
 {
-    let (signal, resource) = create_hydrated_signal_internal(T::initial);
+    let (signal, resource) = create_hydrated_signal(T::initial);
     HydrateSignal { signal, resource }
 }
 
@@ -91,7 +91,7 @@ pub(crate) fn serialize_for_injection<T: serde::Serialize>(value: &T) -> String 
 }
 
 #[cfg(not(feature = "ssr"))]
-pub(crate) fn read_injected_state<T: serde::de::DeserializeOwned>(id: &str) -> Option<T> {
+pub(crate) fn read_injected_state<T: serde::de::DeserializeOwned>(index: usize) -> Option<T> {
     #[cfg(all(target_arch = "wasm32", feature = "hydrate"))]
     {
         use js_sys::JSON;
@@ -99,12 +99,12 @@ pub(crate) fn read_injected_state<T: serde::de::DeserializeOwned>(id: &str) -> O
         use wasm_bindgen::JsValue;
 
         let doc = document();
-        let script_id = format!("__lh_{}", id);
+        let script_id = "__lh_data";
 
         let el: JsValue = js_sys::Reflect::get(&doc, &JsValue::from_str("getElementById"))
             .ok()
             .and_then(|f| f.dyn_into::<js_sys::Function>().ok())
-            .and_then(|f| f.call1(&doc, &JsValue::from_str(&script_id)).ok())
+            .and_then(|f| f.call1(&doc, &JsValue::from_str(script_id)).ok())
             .filter(|v: &JsValue| !v.is_null() && !v.is_undefined())?;
 
         let text = js_sys::Reflect::get(&el, &JsValue::from_str("textContent"))
@@ -112,12 +112,19 @@ pub(crate) fn read_injected_state<T: serde::de::DeserializeOwned>(id: &str) -> O
             .and_then(|v| v.as_string())?;
 
         let js_val = JSON::parse(&text).ok()?;
-        serde_wasm_bindgen::from_value(js_val).ok()
+        let arr = js_val.dyn_into::<js_sys::Array>().ok()?;
+        let item = arr.get(index as u32);
+        
+        if item.is_null() || item.is_undefined() {
+            return None;
+        }
+
+        serde_wasm_bindgen::from_value(item).ok()
     }
 
     #[cfg(any(not(target_arch = "wasm32"), not(feature = "hydrate")))]
     {
-        let _ = id;
+        let _ = index;
         None
     }
 }
@@ -140,7 +147,7 @@ where
     if let Some(s) = use_context::<HydrateSignal<T>>() {
         s.signal
     } else {
-        create_hydrated_signal_internal(|| fallback).0
+        create_hydrated_signal(|| fallback).0
     }
 }
 
@@ -150,7 +157,7 @@ where
 /// that calls `T::initial()`.
 ///
 /// Returns `(RwSignal<T>, LocalResource<Option<T>>)`
-pub(crate) fn create_hydrated_signal_internal<T, F>(
+pub(crate) fn create_hydrated_signal<T, F>(
     fallback: F,
 ) -> (RwSignal<T>, LocalResource<Option<T>>)
 where
@@ -160,8 +167,8 @@ where
     #[cfg(not(feature = "ssr"))]
     let initial_val = {
         let counter = get_hydration_counter();
-        let id = counter.next().to_string();
-        let injected = read_injected_state::<T>(&id);
+        let index = counter.next();
+        let injected = read_injected_state::<T>(index);
         injected.unwrap_or_else(fallback)
     };
 
@@ -173,9 +180,8 @@ where
         if let Some(parts) = leptos::prelude::use_context::<Parts>() {
             if let Some(states) = parts.extensions.get::<InjectedStates>() {
                 if let Ok(mut states_guard) = states.0.lock() {
-                    let id = states_guard.len().to_string();
                     let json = serialize_for_injection(&val);
-                    states_guard.push((id, json));
+                    states_guard.push(json);
                 }
             }
         }

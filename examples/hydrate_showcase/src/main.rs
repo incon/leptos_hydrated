@@ -45,15 +45,13 @@ async fn main() {
         
         let mut html = String::from_utf8_lossy(&bytes).into_owned();
         
-        let mut scripts = String::new();
-        for (id, json) in injected {
-            scripts.push_str(&format!("<script id=\"__lh_{}\" type=\"application/json\">{}</script>", id, json));
-        }
+        let json_array = format!("[{}]", injected.join(","));
+        let script = format!("<script id=\"__lh_data\" type=\"application/json\">{}</script>", json_array);
         
         if let Some(idx) = html.find("</body>") {
-            html.insert_str(idx, &scripts);
+            html.insert_str(idx, &script);
         } else {
-            html.push_str(&scripts);
+            html.push_str(&script);
         }
         
         parts.headers.insert(

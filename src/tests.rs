@@ -1,7 +1,7 @@
 use super::*;
 #[cfg(not(feature = "ssr"))]
 use crate::core::get_hydration_counter;
-use crate::core::create_hydrated_signal_internal;
+use crate::core::create_hydrated_signal;
 #[cfg(feature = "ssr")]
 use crate::core::serialize_for_injection;
 use leptos::prelude::*;
@@ -24,7 +24,7 @@ fn use_hydrate_signal<T>() -> (RwSignal<T>, LocalResource<Option<T>>)
 where
     T: Hydratable + Clone + Send + Sync + serde::Serialize + serde::de::DeserializeOwned + 'static,
 {
-    create_hydrated_signal_internal(T::initial)
+    create_hydrated_signal(T::initial)
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Debug)]
@@ -642,16 +642,14 @@ async fn test_hydrated_signal_auto_id_ssr() {
     let owner = Owner::new_root(None);
     owner.with(|| {
         provide_context(parts);
-        let _ = hydrated_signal(DefaultState::initial());
-        let _ = hydrated_signal(DefaultState::initial());
+        let _ = hydrated_signal(DefaultState { value: 42 });
+        let _ = hydrated_signal(DefaultState { value: 100 });
     });
     
     let guard = states.0.lock().unwrap();
     assert_eq!(guard.len(), 2);
-    assert_eq!(guard[0].0, "0");
-    assert_eq!(guard[0].1, "42");
-    assert_eq!(guard[1].0, "1");
-    assert_eq!(guard[1].1, "100");
+    assert_eq!(guard[0], "{\"value\":42}");
+    assert_eq!(guard[1], "{\"value\":100}");
 }
 
 #[cfg(not(feature = "ssr"))]
