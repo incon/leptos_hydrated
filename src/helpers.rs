@@ -13,9 +13,9 @@ use std::collections::HashMap;
 /// the same request.
 #[cfg(any(feature = "ssr", not(target_arch = "wasm32")))]
 #[derive(Clone, Debug)]
-struct HydrationStore {
-    cookies: ArcRwSignal<HashMap<String, String>>,
-    query: ArcRwSignal<HashMap<String, String>>,
+pub(crate) struct HydrationStore {
+    pub(crate) cookies: ArcRwSignal<HashMap<String, String>>,
+    pub(crate) query: ArcRwSignal<HashMap<String, String>>,
 }
 
 #[cfg(any(feature = "ssr", not(target_arch = "wasm32")))]
@@ -61,6 +61,41 @@ impl HydrationStore {
             query: ArcRwSignal::new(query),
         }
     }
+
+    #[cfg(feature = "ssr")]
+    pub(crate) fn new_from_parts(parts: &http::request::Parts) -> Self {
+        use http::header::COOKIE;
+        let mut cookies = HashMap::new();
+        let mut query = HashMap::new();
+
+        // 1. Parse Cookies
+        if let Some(c_str) = parts.headers.get(COOKIE).and_then(|h| h.to_str().ok()) {
+            for part in c_str.split(';') {
+                let part = part.trim();
+                if let Some((k, v)) = part.split_once('=') {
+                    cookies.insert(k.trim().to_string(), v.trim().to_string());
+                }
+            }
+        }
+
+        // 2. Parse Query (using OriginalUri fallback for robustness)
+        let query_str = parts
+            .extensions
+            .get::<axum::extract::OriginalUri>()
+            .and_then(|uri| uri.query())
+            .or_else(|| parts.uri.query());
+
+        if let Some(q_str) = query_str {
+            if let Ok(params) = serde_urlencoded::from_str::<Vec<(String, String)>>(q_str) {
+                query.extend(params);
+            }
+        }
+
+        Self {
+            cookies: ArcRwSignal::new(cookies),
+            query: ArcRwSignal::new(query),
+        }
+    }
 }
 
 /// Provides the hydration context for the current request.
@@ -72,12 +107,14 @@ pub fn provide_hydration_context() {
 
 /// Internal helper to get the store, initializing it from context or creating a lazy one.
 #[cfg(any(feature = "ssr", not(target_arch = "wasm32")))]
-fn get_store() -> HydrationStore {
-    use_context::<HydrationStore>().unwrap_or_else(|| {
+pub(crate) fn get_store() -> HydrationStore {
+    if let Some(store) = use_context::<HydrationStore>() {
+        store
+    } else {
         let store = HydrationStore::new();
         provide_context(store.clone());
         store
-    })
+    }
 }
 
 /// Returns the value of a cookie by name.
@@ -106,7 +143,7 @@ pub fn get_cookie(name: &str) -> Option<String> {
 
     #[cfg(any(feature = "ssr", not(target_arch = "wasm32")))]
     {
-        get_store().cookies.read().get(name).cloned()
+        get_store().cookies.read_untracked().get(name).cloned()
     }
 }
 
@@ -138,8 +175,8 @@ pub fn set_cookie(name: &str, value: &str, options: &str) {
 
         #[cfg(feature = "ssr")]
         {
-            use http::HeaderValue;
             use http::header::SET_COOKIE;
+            use http::HeaderValue;
             use leptos_axum::ResponseOptions;
 
             if let Some(res) = use_context::<ResponseOptions>() {
@@ -167,34 +204,6 @@ pub fn get_query_param(name: &str) -> Option<String> {
 
     #[cfg(any(feature = "ssr", not(target_arch = "wasm32")))]
     {
-        // 1. Check current store (mocked or initialized from request)
-        if let Some(val) = get_store().query.read().get(name).cloned() {
-            return Some(val);
-        }
-
-        #[cfg(feature = "ssr")]
-        {
-            use http::header::REFERER;
-            use http::request::Parts;
-
-            // 2. Fallback to Referer header if present
-            if let Some(parts) = use_context::<Parts>() {
-                if let Some(val) = parts
-                    .headers
-                    .get(REFERER)
-                    .and_then(|h| h.to_str().ok())
-                    .and_then(|r| {
-                        let uri = r.parse::<http::Uri>().ok()?;
-                        let q_str = uri.query()?;
-                        let params =
-                            serde_urlencoded::from_str::<Vec<(String, String)>>(q_str).ok()?;
-                        params.into_iter().find(|(k, _)| k == name).map(|(_, v)| v)
-                    })
-                {
-                    return Some(val);
-                }
-            }
-        }
-        None
+        get_store().query.read_untracked().get(name).cloned()
     }
 }

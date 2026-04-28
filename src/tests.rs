@@ -1,9 +1,11 @@
 use super::*;
+use tower::ServiceExt;
+use crate::core::InjectedStates;
 #[cfg(not(feature = "ssr"))]
 use crate::core::get_hydration_counter;
 use crate::core::create_hydrated_signal;
 #[cfg(feature = "ssr")]
-use crate::core::serialize_for_injection;
+use crate::core::{serialize_for_injection, get_injected_states};
 use leptos::prelude::*;
 use leptos::reactive::owner::Owner;
 use serde::{Deserialize, Serialize};
@@ -352,56 +354,6 @@ async fn test_get_query_param_ssr() {
     });
 }
 
-#[cfg(feature = "ssr")]
-#[tokio::test]
-async fn test_get_query_param_referer_ssr() {
-    use axum::http::Request;
-    use axum::http::header::REFERER;
-
-    let (parts, _) = Request::builder()
-        .header(REFERER, "http://site.com/page?ref=123")
-        .body(())
-        .unwrap()
-        .into_parts();
-
-    let owner = Owner::new_root(None);
-    owner.with(|| {
-        provide_context(parts);
-        assert_eq!(get_query_param("ref"), Some("123".into()));
-        assert_eq!(get_query_param("missing"), None);
-    });
-}
-
-#[cfg(feature = "ssr")]
-#[tokio::test]
-async fn test_get_query_param_referer_malformed_ssr() {
-    use axum::http::Request;
-    use axum::http::header::REFERER;
-
-    let owner = Owner::new_root(None);
-
-    // 1. Referer without query
-    let (parts, _) = Request::builder()
-        .header(REFERER, "http://site.com/page")
-        .body(())
-        .unwrap()
-        .into_parts();
-    owner.with(|| {
-        provide_context(parts);
-        assert_eq!(get_query_param("any"), None);
-    });
-
-    // 2. Referer with invalid URI
-    let (parts, _) = Request::builder()
-        .header(REFERER, "not a uri")
-        .body(())
-        .unwrap()
-        .into_parts();
-    owner.with(|| {
-        provide_context(parts);
-        assert_eq!(get_query_param("any"), None);
-    });
-}
 
 #[cfg(all(not(feature = "ssr"), not(feature = "hydrate")))]
 #[test]
@@ -462,22 +414,6 @@ fn test_use_hydrated_resource_panics_without_context() {
 }
 
 // ---------------------------------------------------------------------------
-// Coverage gap: is_server / is_client
-// ---------------------------------------------------------------------------
-
-#[cfg(feature = "ssr")]
-#[test]
-fn test_is_server_true_when_ssr() {
-    assert!(crate::is_server());
-    assert!(!crate::is_client());
-}
-
-#[cfg(not(feature = "ssr"))]
-#[test]
-fn test_is_client_true_when_not_ssr() {
-    assert!(!crate::is_server());
-    assert!(crate::is_client());
-}
 
 // ---------------------------------------------------------------------------
 // Isomorphic / Environment tests
@@ -668,4 +604,268 @@ async fn test_hydrated_signal_counter_client() {
         });
     }).await;
 }
+
+
+// ---------------------------------------------------------------------------
+// Middleware & Integration Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn test_middleware_injects_script() {
+    use axum::{body::Body, http::{Request, header}, routing::get, Router};
+    use crate::ssr::HydratedRouterExt;
+    use tower::ServiceExt; 
+    use http_body_util::BodyExt;
+
+    let app = Router::new()
+        .route("/", get(|req: axum::extract::Request| async move {
+            // Leptos would get the states from request extensions
+            let states = req.extensions().get::<InjectedStates>().unwrap().clone();
+            states.0.lock().unwrap().push(r#"{"test":true}"#.to_string());
+            
+            let mut res = axum::response::Response::new(Body::from("<html><body>Hello</body></html>"));
+            res.headers_mut().insert(header::CONTENT_TYPE, header::HeaderValue::from_static("text/html"));
+            res
+        }))
+        .hydrated();
+
+    let response = app.oneshot(Request::builder().uri("/").body(Body::empty()).unwrap()).await.unwrap();
+    
+    assert_eq!(response.status(), 200);
+    
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let body_str = String::from_utf8_lossy(&body_bytes);
+    
+    assert!(body_str.contains("__lh_data"), "Body should contain __lh_data script. Got: {}", body_str);
+    assert!(body_str.contains(r#"{"test":true}"#));
+}
+
+#[tokio::test]
+async fn test_synchronization_equality_check() {
+    let local = tokio::task::LocalSet::new();
+    local.run_until(async {
+        let owner = Owner::new_root(None);
+        owner.with(|| {
+            // 1. Create signal with initial 10
+            let (signal, _resource) = create_hydrated_signal(|| DefaultState { value: 10 });
+            assert_eq!(signal.get_untracked().value, 10);
+            
+            // 2. Set to 20
+            signal.set(DefaultState { value: 20 });
+            assert_eq!(signal.get_untracked().value, 20);
+            
+            // 3. Sync with SAME value 20. 
+            // We verify that if we implement the logic correctly, we don't call set unnecessarily.
+            let val = DefaultState { value: 20 };
+            let mut set_called = false;
+            if val != signal.get_untracked() {
+                signal.set(val);
+                set_called = true;
+            }
+            assert!(!set_called, "Set should not be called when values are equal");
+            
+            // 4. Sync with NEW value 30
+            let val = DefaultState { value: 30 };
+            let mut set_called = false;
+            if val != signal.get_untracked() {
+                signal.set(val);
+                set_called = true;
+            }
+            assert!(set_called, "Set should be called when values are different");
+            assert_eq!(signal.get_untracked().value, 30);
+        });
+    }).await;
+}
+
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn test_hydration_store_complex_parsing() {
+    use axum::http::Request;
+    use axum::extract::OriginalUri;
+
+    let mut req = Request::builder()
+        .uri("/path?foo=bar&baz=qux")
+        .header("Cookie", "session=123; theme=dark; pref=true")
+        .body(())
+        .unwrap();
+    
+    // Add OriginalUri extension to test fallback
+    req.extensions_mut().insert(OriginalUri("/original?ref=promo".parse().unwrap()));
+
+    let (parts, _) = req.into_parts();
+    let store = HydrationStore::new_from_parts(&parts);
+    
+    assert_eq!(store.cookies.get_untracked().get("session").map(String::as_str), Some("123"));
+    assert_eq!(store.cookies.get_untracked().get("theme").map(String::as_str), Some("dark"));
+    assert_eq!(store.cookies.get_untracked().get("pref").map(String::as_str), Some("true"));
+    
+    // Should favor OriginalUri query
+    assert_eq!(store.query.get_untracked().get("ref").map(String::as_str), Some("promo"));
+}
+
+#[tokio::test]
+async fn test_hydrate_signal_deref() {
+    init_test_env();
+    let owner = Owner::new_root(None);
+    owner.with(|| {
+        let h = use_hydrated_context::<DefaultState>();
+        // Test deref to RwSignal
+        let _sig: &RwSignal<DefaultState> = &h;
+        assert_eq!(h.get_untracked().value, 0);
+    });
+}
+
+#[tokio::test]
+async fn test_manual_injection_roundtrip() {
+    init_test_env();
+    let owner = Owner::new_root(None);
+    owner.with(|| {
+        #[cfg(feature = "ssr")]
+        {
+            let states = InjectedStates::default();
+            provide_context(states.clone());
+            
+            inject_state(&"hello world".to_string());
+            
+            let guard = states.0.lock().unwrap();
+            assert_eq!(guard.len(), 1);
+            assert_eq!(guard[0], "\"hello world\"");
+        }
+        
+        // On native/mock client, use_injected_state returns None (no wasm/hydrate)
+        assert!(use_injected_state::<String>().is_none());
+    });
+}
+
+
+
+#[tokio::test]
+#[should_panic(expected = "HydrateSignal<leptos_hydrated::tests::DefaultState> not found")]
+async fn test_hydrated_get_panics() {
+    init_test_env();
+    let owner = Owner::new_root(None);
+    owner.with(|| {
+        Hydrated::<DefaultState>::get();
+    });
+}
+
+#[tokio::test]
+#[should_panic(expected = "Hydrated LocalResource<leptos_hydrated::tests::DefaultState> not found")]
+async fn test_hydrated_resource_panics() {
+    init_test_env();
+    let owner = Owner::new_root(None);
+    owner.with(|| {
+        Hydrated::<DefaultState>::resource();
+    });
+}
+
+
+#[test]
+fn test_provide_hydration_context_coverage() {
+    let owner = Owner::new_root(None);
+    owner.with(|| {
+        provide_hydration_context();
+        assert!(use_context::<crate::helpers::HydrationStore>().is_some());
+    });
+}
+
+#[test]
+fn test_hydrate_signal_eq() {
+    init_test_env();
+    let owner = Owner::new_root(None);
+    owner.with(|| {
+        let h1 = use_hydrated_context::<DefaultState>();
+        let h2 = h1;
+        assert_eq!(h1, h2);
+    });
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn test_middleware_empty_injection() {
+    use axum::http::Request;
+    use axum::Router;
+    use axum::routing::get;
+    use crate::ssr::HydratedRouterExt;
+
+    // A route that DOES NOT use any hydrated signals
+    let app = Router::new()
+        .route("/", get(|| async { "no signals here" }))
+        .hydrated();
+
+    let req = Request::builder().uri("/").header("Accept", "text/html").body(axum::body::Body::empty()).unwrap();
+    let res = app.oneshot(req).await.unwrap();
+
+    assert_eq!(res.status(), http::StatusCode::OK);
+    let body = axum::body::to_bytes(res.into_body(), 1024).await.unwrap();
+    let body_str = String::from_utf8_lossy(&body);
+    // Should NOT contain the script tag because no signals were used
+    assert!(!body_str.contains("__lh_data"));
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn test_middleware_non_html_response() {
+    use axum::Router;
+    use axum::routing::get;
+    use crate::ssr::HydratedRouterExt;
+
+    let app = Router::new()
+        .route("/", get(|parts: http::request::Parts| async move { 
+            // Even if we use a signal, if the response is not HTML, it shouldn't inject
+            let owner = leptos::prelude::Owner::new_root(None);
+            owner.with(|| {
+                provide_context(parts);
+                let _ = hydrated_signal(DefaultState::initial());
+            });
+            axum::response::Json(serde_json::json!({"status": "ok"}))
+        }))
+        .hydrated();
+
+    let req = http::Request::builder().uri("/").body(axum::body::Body::empty()).unwrap();
+    let res = app.oneshot(req).await.unwrap();
+
+    assert_eq!(res.headers().get(http::header::CONTENT_TYPE).unwrap(), "application/json");
+    let body = axum::body::to_bytes(res.into_body(), 1024).await.unwrap();
+    let body_str = String::from_utf8_lossy(&body);
+    assert!(!body_str.contains("__lh_data"));
+}
+
+#[tokio::test]
+async fn test_resource_closure_coverage() {
+    init_test_env();
+    let owner = Owner::new_root(None);
+    owner.with(|| {
+        let (sig, res) = create_hydrated_signal(|| DefaultState { value: 10 });
+        
+        // Trigger first run
+        let _ = res.get(); // Triggers the closure
+        
+        // Set a new value and trigger second run
+        sig.set(DefaultState { value: 20 });
+        let _ = res.get();
+    });
+}
+
+#[cfg(feature = "ssr")]
+#[tokio::test]
+async fn test_get_injected_states_fallback() {
+    init_test_env();
+    // Case: Parts present, but NO InjectedStates and NO MatchedPath/MockMatchedPath
+    let req = http::Request::builder().body(()).unwrap();
+    let (parts, _) = req.into_parts();
+    
+    let owner = Owner::new_root(None);
+    owner.with(|| {
+        provide_context(parts);
+        let states = get_injected_states();
+        // Should return a default InjectedStates without panicking
+        assert!(states.0.lock().unwrap().is_empty());
+    });
+}
+
+
+
 

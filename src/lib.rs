@@ -23,17 +23,71 @@
 //! 3. **Synchronization:** Once the WASM is active, `initial()` is re-run on the client to synchronize with the current browser state (e.g., reading a JS-accessible cookie).
 //! 4. **Lifecycle Hooks:** Use `on_hydrate` to set up browser-only event listeners (e.g., network status, window resize).
 //!
-//! This also handles **HTTP-only cookies**: the server reads the cookie in
-//! `initial()`, injects the value, and the client never needs to touch the
-//! cookie directly.
+//! ## Hydration Scopes
+//!
+//! `leptos_hydrated` offers three levels of state scope, ordered by increasing granularity:
+//!
+//! ### 1. Local
+//!
+//! Use `hydrated_signal` directly in a component. This creates a hydrated signal that is unique to this component instance and is **not** shared via context.
+//!
+//! ```rust,no_run
+//! # use leptos::prelude::*;
+//! # use leptos_hydrated::*;
+//! # #[derive(Clone, Default, serde::Serialize, serde::Deserialize, PartialEq)] struct MyState;
+//! # impl Hydratable for MyState { fn initial() -> Self { Self } }
+//! #[component]
+//! fn MyComponent() -> impl IntoView {
+//!     let state = hydrated_signal(MyState::initial());
+//!     // ...
+//! }
+//! ```
+//!
+//! ### 2. Scoped
+//!
+//! Wrap a section of your component tree with `<HydratedContext<T>>`. This provides the hydrated state to all descendants in that subtree.
+//!
+//! ```rust,no_run
+//! # use leptos::prelude::*;
+//! # use leptos_hydrated::*;
+//! # #[derive(Clone, Default, serde::Serialize, serde::Deserialize, PartialEq)] struct MyState;
+//! # impl Hydratable for MyState { fn initial() -> Self { Self } }
+//! # #[component] fn Descendant() -> impl IntoView { view! { "Descendant" } }
+//! #[component]
+//! fn Feature() -> impl IntoView {
+//!     view! {
+//!         <HydratedContext<MyState>>
+//!             <Descendant />
+//!         </HydratedContext<MyState>>
+//!     }
+//! }
+//! ```
+//!
+//! ### 3. Global
+//!
+//! Use `<HydratedContext<T> global=true />` (typically in your app shell). This provides the state globally across your entire application.
+//!
+//! ```rust,no_run
+//! # use leptos::prelude::*;
+//! # use leptos_hydrated::*;
+//! # #[derive(Clone, Default, serde::Serialize, serde::Deserialize, PartialEq)] struct MyState;
+//! # impl Hydratable for MyState { fn initial() -> Self { Self } }
+//! #[component]
+//! fn App() -> impl IntoView {
+//!     view! {
+//!         <HydratedContext<MyState> global=true />
+//!         // ...
+//!     }
+//! }
+//! ```
 //!
 //! ## Quick Start
 //!
-//! To use `leptos_hydrated`, you implement the [`Hydratable`] trait. This encapsulates your synchronous "seed" logic (e.g., cookies) and your asynchronous "refresh" logic (e.g., API calls).
+//! Implement the [`Hydratable`] trait to define how your state is initialized and synchronized.
 //!
 //! ```rust,no_run
 //! use leptos::prelude::*;
-//! # use leptos_hydrated::*;
+//! use leptos_hydrated::*;
 //! use serde::{Serialize, Deserialize};
 //!
 //! #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Debug)]
@@ -43,7 +97,7 @@
 //!
 //! impl Hydratable for ThemeState {
 //!     fn initial() -> Self {
-//!         // Use isomorphic helpers to read from cookies/query params on both sides.
+//!         // Use isomorphic helpers to read from cookies on both sides.
 //!         let theme = get_cookie("theme").unwrap_or_else(|| "dark".into());
 //!         ThemeState { theme }
 //!     }
@@ -57,16 +111,16 @@
 //! #[component]
 //! pub fn App() -> impl IntoView {
 //!     view! {
-//!         // 1. Provide state anywhere in the tree
+//!         // Provide state globally
 //!         <HydratedContext<ThemeState> global=true />
-//!         
+//!
 //!         <MainContent />
 //!     }
 //! }
 //!
 //! #[component]
 //! fn MainContent() -> impl IntoView {
-//!     // 2. Consume it anywhere in the tree
+//!     // Consume it anywhere in the tree
 //!     let state = hydrated_signal(ThemeState::initial());
 //!     view! {
 //!         <p>"Theme: " {move || state.get().theme}</p>
@@ -76,39 +130,46 @@
 //!
 //! ## Server-Side Setup
 //!
-//! In order for isomorphic helpers to access request data on the server, you **must** use `.leptos_routes_with_context` in your Axum server setup and call `provide_hydration_context()`.
+//! You **must** add the `.hydrated()` middleware to your Axum router to enable state injection.
 //!
-//! ```rust,no_run
+//! ```rust,ignore
 //! # #[cfg(feature = "ssr")]
 //! # {
 //! # use axum::Router;
-//! # use leptos::prelude::*;
-//! # use leptos_axum::LeptosRoutes;
-//! # #[component] fn App() -> impl IntoView { view! { "" } }
-//! # #[component] fn Shell() -> impl IntoView { view! { "" } }
-//! # use leptos_axum::AxumRouteListing;
+//! # use leptos_hydrated::HydratedRouterExt;
+//! # use leptos::prelude::LeptosOptions;
 //! # let leptos_options = LeptosOptions::builder().output_name("app").build();
-//! # let routes = Vec::<AxumRouteListing>::new();
-//! # let app: Router<LeptosOptions> = Router::new()
-//! .leptos_routes_with_context(
-//!     &leptos_options,
-//!     routes,
-//!     || {
-//!         // This initializes the hydration store from the current request
-//!         leptos_hydrated::provide_hydration_context();
-//!     },
-//!     move || Shell(),
-//! )
-//! # ;
+//! let app = Router::new()
+//!     .leptos_routes(...)
+//!     .fallback(...)
+//!     .hydrated() // <--- Add this before .with_state()
+//!     .with_state(leptos_options);
 //! # }
 //! ```
 //!
-//! ## Environment Macros
+//! ## Environment Utilities
 //!
-//! The library provides macros to simplify environment-gated code:
 //! - `isomorphic!`: Run different logic for server seed vs client hydration.
-//! - `server_only!` / `client_only!`: Execute code only in one environment.
-//! - `is_server()` / `is_client()`: Runtime environment checks.
+//! - `inject_state(&value)`: Manually inject a state from the server (SSR only).
+//! - `use_injected_state<T>()`: Reads the next available injected state from the server (client-side only).
+//!
+//! ### Example: Manual Injection with `isomorphic!`
+//!
+//! ```rust,no_run
+//! # use leptos_hydrated::*;
+//! # #[derive(serde::Serialize, serde::Deserialize)] struct MyState { count: i32 }
+//! let my_value = isomorphic! {
+//!     state => {
+//!         let value = MyState { count: 42 };
+//!         inject_state(&value);
+//!         value
+//!     },
+//!     hydrate => {
+//!         use_injected_state::<MyState>().unwrap_or_else(|| MyState { count: 0 })
+//!     }
+//! };
+//! ```
+//!
 //!
 //! ## PWA & "Born Offline" Support
 //!
@@ -119,33 +180,20 @@ mod components;
 mod core;
 mod helpers;
 mod macros;
+#[cfg(feature = "ssr")]
+mod ssr;
 mod traits;
 
 pub use accessors::Hydrated;
-pub use components::*;
-pub use core::{HydrateSignal, use_hydrated_context, hydrated_signal, InjectedStates};
+pub use components::HydratedContext;
+pub use core::{hydrated_signal, use_hydrated_context, HydrateSignal, use_injected_state, inject_state};
 #[allow(unused_imports)]
 pub use helpers::*;
 #[allow(unused_imports)]
 pub use macros::*;
+#[cfg(feature = "ssr")]
+pub use ssr::*;
 pub use traits::*;
-
-/// Returns `true` if the code is currently executing on the server (SSR).
-pub fn is_server() -> bool {
-    #[cfg(feature = "ssr")]
-    {
-        true
-    }
-    #[cfg(not(feature = "ssr"))]
-    {
-        false
-    }
-}
-
-/// Returns `true` if the code is currently executing in the browser (client-side).
-pub fn is_client() -> bool {
-    !is_server()
-}
 
 #[cfg(test)]
 mod tests;

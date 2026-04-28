@@ -1,5 +1,5 @@
 use leptos::prelude::*;
-use leptos_hydrated::client_only;
+
 use leptos_hydrated::*;
 use serde::{Deserialize, Serialize};
 
@@ -15,9 +15,10 @@ impl ProfileState {
             if s.is_authenticated {
                 s.is_authenticated = false;
                 s.profile = None;
-                client_only! {
+                #[cfg(not(feature = "ssr"))]
+                {
                     set_cookie("session", "", "; path=/; max-age=0");
-                };
+                }
             } else {
                 s.is_authenticated = true;
                 let profile = UserProfile {
@@ -26,7 +27,8 @@ impl ProfileState {
                     edits: 42,
                 };
                 s.profile = Some(profile.clone());
-                client_only! {
+                #[cfg(not(feature = "ssr"))]
+                {
                     let js_val = serde_wasm_bindgen::to_value(&profile).unwrap();
                     if let Ok(json) = js_sys::JSON::stringify(&js_val) {
                         let json_str: String = json.into();
@@ -37,13 +39,14 @@ impl ProfileState {
                             "; path=/; max-age=31536000",
                         );
                     }
-                };
+                }
             }
         });
-        client_only! {
+        #[cfg(not(feature = "ssr"))]
+        {
             use leptos::prelude::window;
             let _ = window().location().reload();
-        };
+        }
     }
 }
 

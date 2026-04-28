@@ -7,8 +7,9 @@ use http::request::Parts;
 
 
 /// Global shared state for injected scripts.
+#[cfg(feature = "ssr")]
 #[derive(Clone, Default, Debug)]
-pub struct InjectedStates(pub Arc<Mutex<Vec<String>>>);
+pub(crate) struct InjectedStates(pub Arc<Mutex<Vec<String>>>);
 
 /// Counter for automatic hydration IDs on the client.
 #[cfg(not(feature = "ssr"))]
@@ -71,7 +72,7 @@ impl<T: 'static> Eq for HydrateSignal<T> {}
 /// This also sets up automatic synchronization via a `LocalResource`.
 pub fn use_hydrated_context<T>() -> HydrateSignal<T>
 where
-    T: Hydratable + Clone + Send + Sync + serde::Serialize + serde::de::DeserializeOwned + 'static,
+    T: Hydratable + Clone + Send + Sync + serde::Serialize + serde::de::DeserializeOwned + PartialEq + 'static,
 {
     let (signal, resource) = create_hydrated_signal(T::initial);
     HydrateSignal { signal, resource }
@@ -128,6 +129,79 @@ pub(crate) fn read_injected_state<T: serde::de::DeserializeOwned>(index: usize) 
         None
     }
 }
+#[cfg(feature = "ssr")]
+pub(crate) fn get_injected_states() -> InjectedStates {
+    if let Some(states) = use_context::<InjectedStates>() {
+        states
+    } else if let Some(parts) = use_context::<Parts>() {
+        if let Some(states) = parts.extensions.get::<InjectedStates>() {
+            provide_context(states.clone());
+            states.clone()
+        } else {
+            #[cfg(feature = "ssr")]
+            {
+                use crate::ssr::HydrationMiddlewareMarker;
+                // Only panic if we are in a context that has been matched by Axum (a real request)
+                // but the hydration marker is missing.
+                if parts.extensions.get::<axum::extract::MatchedPath>().is_some() 
+                   && parts.extensions.get::<HydrationMiddlewareMarker>().is_none() 
+                {
+                    panic!(
+                        "\n\n[leptos_hydrated] MISSING MIDDLEWARE SETUP\n\
+                        Hydrated signals require the `.hydrated()` middleware to be added to your Axum Router.\n\n\
+                        FIX:\n\
+                        use leptos_hydrated::HydratedRouterExt;\n\
+                        let app = Router::new()\n\
+                        \x20\x20\x20\x20.leptos_routes(...)\n\
+                        \x20\x20\x20\x20.hydrated() // <--- Add this before .with_state()\n\
+                        \x20\x20\x20\x20.with_state(leptos_options);\n\n"
+                    );
+                }
+            }
+            InjectedStates::default()
+        }
+    } else {
+        InjectedStates::default()
+    }
+}
+
+/// Manually injects a state from the server to be consumed by the client.
+/// 
+/// This is the server-side counterpart to `use_injected_state()`.
+pub fn inject_state<T>(_value: &T)
+where
+    T: serde::Serialize,
+{
+    #[cfg(feature = "ssr")]
+    {
+        let states = get_injected_states();
+        if let Ok(mut states_guard) = states.0.lock() {
+            let json = serialize_for_injection(_value);
+            states_guard.push(json);
+        }
+    }
+}
+
+
+/// Reads the next available injected state from the server.
+/// 
+/// This is the client-side counterpart to `get_injected_states()`.
+/// It increments the internal hydration counter.
+pub fn use_injected_state<T>() -> Option<T>
+where
+    T: serde::de::DeserializeOwned,
+{
+    #[cfg(not(feature = "ssr"))]
+    {
+        let counter = get_hydration_counter();
+        let index = counter.next();
+        read_injected_state(index)
+    }
+    #[cfg(feature = "ssr")]
+    {
+        None
+    }
+}
 
 
 /// The core hook for creating a hydrated signal.
@@ -142,7 +216,7 @@ pub(crate) fn read_injected_state<T: serde::de::DeserializeOwned>(index: usize) 
 /// Otherwise, a new hydrated signal is created with the provided fallback value.
 pub fn hydrated_signal<T>(fallback: T) -> RwSignal<T>
 where
-    T: Hydratable + Clone + Send + Sync + serde::Serialize + serde::de::DeserializeOwned + 'static,
+    T: Hydratable + Clone + Send + Sync + serde::Serialize + serde::de::DeserializeOwned + PartialEq + 'static,
 {
     if let Some(s) = use_context::<HydrateSignal<T>>() {
         s.signal
@@ -175,15 +249,10 @@ where
     #[cfg(feature = "ssr")]
     let initial_val = {
         let val = fallback();
-
-        // Push to injected states to be picked up by the inject_logic middleware
-        if let Some(parts) = leptos::prelude::use_context::<Parts>() {
-            if let Some(states) = parts.extensions.get::<InjectedStates>() {
-                if let Ok(mut states_guard) = states.0.lock() {
-                    let json = serialize_for_injection(&val);
-                    states_guard.push(json);
-                }
-            }
+        let states = get_injected_states();
+        if let Ok(mut states_guard) = states.0.lock() {
+            let json = serialize_for_injection(&val);
+            states_guard.push(json);
         }
         val
     };
@@ -217,8 +286,8 @@ where
         let resource_cloned = resource.clone();
         leptos::task::spawn_local(async move {
             if let Some(val) = resource_cloned.await {
-                signal.set(val);
-            }
+                    signal.set(val);
+                }
         });
     }
 

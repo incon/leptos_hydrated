@@ -1,6 +1,6 @@
 #[cfg(not(feature = "ssr"))]
 use leptos::prelude::*;
-use serde::{Serialize, de::DeserializeOwned};
+use serde::{de::DeserializeOwned, Serialize};
 
 /// A trait for types that can be hydrated automatically.
 ///

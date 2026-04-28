@@ -1277,7 +1277,9 @@ version = "0.7.0"
 dependencies = [
  "any_spawner",
  "axum",
+ "futures-util",
  "http",
+ "http-body-util",
  "js-sys",
  "leptos",
  "leptos_axum",
@@ -1287,6 +1289,7 @@ dependencies = [
  "serde_json",
  "serde_urlencoded",
  "tokio",
+ "tower",
  "urlencoding",
  "wasm-bindgen",
  "web-sys",

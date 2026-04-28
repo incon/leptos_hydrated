@@ -11,14 +11,15 @@ categories = ["web-programming"]
 repository = "https://github.com/incon/leptos_hydrated"
 readme = "README.md"
 documentation = "https://docs.rs/leptos_hydrated"
-
 [features]
 ssr = [
     "leptos/ssr",
+    "dep:axum",
     "dep:serde_json",
     "dep:leptos_axum",
     "dep:http",
     "dep:serde_urlencoded",
+    "dep:futures-util",
 ]
 hydrate = [
     "leptos/hydrate",
@@ -40,6 +41,7 @@ js-sys = { version = "0.3", optional = true }
 wasm-bindgen = { version = "0.2", optional = true }
 serde-wasm-bindgen = { version = "0.6", optional = true }
 leptos_axum = { version = "0.8", optional = true }
+axum = { version = "0.8", optional = true }
 http = { version = "1.0", optional = true }
 web-sys = { version = "0.3", optional = true, features = [
     "UrlSearchParams",
@@ -49,12 +51,15 @@ web-sys = { version = "0.3", optional = true, features = [
     "Element",
     "HtmlElement",
 ] }
+futures-util = { version = "0.3", optional = true }
 
 [dev-dependencies]
 tokio = { version = "1.51", features = ["full"] }
 any_spawner = { version = "0.3.0", features = ["tokio"] }
 axum = "0.8"
 leptos_router = "0.8"
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
 
 [workspace]
 members = ["examples/hydrate_showcase", "examples/offline_pwa"]

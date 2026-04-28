@@ -1,5 +1,5 @@
 use leptos::prelude::*;
-use leptos_hydrated::client_only;
+
 use leptos_hydrated::*;
 use serde::{Deserialize, Serialize};
 
@@ -11,9 +11,10 @@ impl ThemeState {
         state.update(|s| {
             let new_theme = if s.0 == "dark" { "light" } else { "dark" };
             s.0 = new_theme.to_string();
-            client_only! {
+            #[cfg(not(feature = "ssr"))]
+            {
                 set_cookie("theme", &new_theme, "; path=/; max-age=31536000");
-            };
+            }
         });
     }
 }
