@@ -1,36 +1,81 @@
 # Leptos Hydrated
 
-A lightweight library for **flicker-free interactive state hydration** in [Leptos 0.8](https://leptos.dev/) that works with or without JavaScript.
+A library for flicker-free interactive state hydration in [Leptos 0.8](https://leptos.dev/).
 
-## Features
+`leptos_hydrated` is ideal for bootstrapping state that you already have or can have on both sides (isomorphic data), such as cookies or URL parameters. By initializing signals immediately with server-provided state and synchronizing them once the browser is active, you eliminate the "loading flicker" common in SSR applications.
 
-- **Flicker-Free:** Initializes signals with server-provided state immediately during hydration.
-- **Browser-First:** Leverage state already in the browser (cookies, URL params) to render the first frame without waiting for API calls.
-- **Isomorphic:** Works naturally in both SSR and CSR contexts.
-- **Trait-Based:** Use the `Hydratable` trait to define state and refresh logic in one place.
-- **Global & Scoped:** Support for both global application state and scoped feature state.
-- **Zero Mismatch:** Designed to avoid hydration warnings by matching server and client initial renders exactly.
+## How it Works
 
-## Installation
+1.  **Server-Side Render (SSR):** `initial()` is called on the server. The result is serialized into a deterministic injection stream in the HTML shell.
+2.  **Hydration:** The client reads the serialized state from the stream in the same order and initializes the signal immediately: **zero flicker**.
+3.  **Synchronization:** Once the WASM is active, `initial()` is re-run on the client to synchronize with the current browser state (e.g., reading a JS-accessible cookie).
+4.  **Lifecycle Hooks:** Use `on_hydrate` to execute any client-side code immediately after hydration (e.g., event listeners).
 
-Add this to your `Cargo.toml`:
+## Hydration Accessors
 
-```toml
-[dependencies]
-leptos_hydrated = "0.7"
+`leptos_hydrated` mirrors standard Leptos signal patterns to make state management intuitive.
+
+### 1. Local (Independent)
+
+Use `hydrated_signal` to create a new, independent hydrated signal. This works exactly like `RwSignal::new(T)`, but it is hydration-aware.
+
+```rust
+#[component]
+fn MyComponent() -> impl IntoView {
+    // This state is unique to this component instance
+    let state = hydrated_signal(MyState::initial());
+    
+    view! {
+        <p>"Count: " {move || state.get().count}</p>
+    }
+}
 ```
 
-## Two Modes
-| Mode | `fetch()` | Use when |
-|------|-----------|----------|
-| **Injection-only** | `None` (default) | Server value is the source of truth (HTTP-only cookies, session tokens) |
-| **Injection + refresh** | `Some(v)` | Client can also re-read the same state (JS-readable cookies, URL params) |
+### 2. Scoped (Shared)
+
+Wrap a section of your component tree with `<HydratedContext<T>>` to share a hydrated signal. Use `use_hydrated_context<T>()` in descendants to access it.
+
+```rust
+#[component]
+fn Feature() -> impl IntoView {
+    view! {
+        <HydratedContext<MyState>>
+            <Descendant />
+        </HydratedContext<MyState>>
+    }
+}
+
+#[component]
+fn Descendant() -> impl IntoView {
+    // Access the shared signal from context
+    let state = use_hydrated_context::<MyState>();
+    
+    view! {
+        <p>{move || state.get().name}</p>
+    }
+}
+```
+
+### 3. Global (Shared)
+
+Use `<HydratedContext<T> global=true />` (typically in your app shell) to provide state globally across your entire application.
+
+```rust
+#[component]
+fn App() -> impl IntoView {
+    view! {
+        <HydratedContext<MyState> global=true />
+        // MyState is now available everywhere in the app
+        <MainContent />
+    }
+}
+```
 
 ## Quick Start
 
 ### 1. Define your State with `Hydratable`
 
-The most robust way to use `leptos_hydrated` is by implementing the `Hydratable` trait. This encapsulates your synchronous "seed" logic (e.g., cookies) and your asynchronous "refresh" logic (e.g., API calls).
+Implement the `Hydratable` trait to define how your state is initialized and synchronized.
 
 ```rust
 use leptos::prelude::*;
@@ -38,144 +83,52 @@ use leptos_hydrated::*;
 use serde::{Serialize, Deserialize};
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Debug)]
-pub struct ThemeState {
-    pub theme: String,
-}
+pub struct ThemeState(pub String);
 
 impl Hydratable for ThemeState {
     fn initial() -> Self {
-        // Use isomorphic helpers to read from cookies/query params on both sides.
+        // Use isomorphic helpers to read from cookies on both sides.
         let theme = get_cookie("theme").unwrap_or_else(|| "dark".into());
-        ThemeState { theme }
+        ThemeState(theme)
     }
 
-    fn fetch() -> impl std::future::Future<Output = Option<Self>> + Send + 'static {
-        // Re-read from the same client-side source after hydration.
-        async {
-            let theme = get_cookie("theme").unwrap_or_else(|| "dark".into());
-            Some(ThemeState { theme })
-        }
+    #[cfg(not(feature = "ssr"))]
+    fn on_hydrate(&self, state: RwSignal<Self>) {
+        // Optional: Execute code in the browser immediately after hydration
+        leptos::logging::log!("Theme hydrated: {}", self.0);
     }
 }
 ```
-
-### 2. Choose your hydration strategy
-
-#### `HydrateState` (Global State)
-
-Provides global state via context. Place it anywhere in your view tree.
-
-```rust
-#[component]
-pub fn App() -> impl IntoView {
-    view! {
-        // 1. Provide state anywhere in the tree
-        <HydrateState<ThemeState> />
-        
-        <MainContent />
-    }
-}
-
-#[component]
-fn MainContent() -> impl IntoView {
-    // 2. Consume it anywhere in the tree
-    let state = use_hydrated::<ThemeState>();
-    view! {
-        <p>"Theme: " {move || state.get().theme}</p>
-    }
-}
-```
-
-#### `HydrateContext` (Scoped State)
-
-Provides scoped state to a specific branch of the component tree.
-
-```rust
-#[component]
-fn ProfileSection() -> impl IntoView {
-    view! {
-        <HydrateContext<UserState>>
-            <ProfileInfo />
-        </HydrateContext<UserState>>
-    }
-}
-```
-
-### 3. Manual Hydration (Advanced)
-
-If you don't want to use the trait, you can use the base components directly:
-
-```rust
-view! {
-    // Global
-    <HydrateStateWith
-        ssr_value=|| ThemeState { theme: "dark".into() }
-        fetcher=|| async { Some(ThemeState { theme: "dark".into() }) }
-    />
-    
-    // Scoped
-    <HydrateContextWith
-        ssr_value=|| ThemeState { theme: "dark".into() }
-        fetcher=|| async { Some(ThemeState { theme: "dark".into() }) }
-    >
-        <ProfileInfo />
-    </HydrateContextWith>
-}
-```
-
-### Isomorphic Helpers
-
-`leptos_hydrated` provides several helpers to read and write state consistently on both server and client, which is particularly useful inside `Hydratable::initial()`.
-
-- **`get_cookie(name)`**: Reads a cookie by name. 
-  - *SSR:* Reads from `http::request::Parts`.
-  - *Client:* Reads from `document.cookie`.
-- **`set_cookie(name, value, options)`**: Sets a cookie. 
-  - *SSR:* Uses `leptos_axum::ResponseOptions` to insert a `SET-COOKIE` header.
-  - *Client:* Updates `document.cookie`.
-- **`get_query_param(name)`**: Reads a URL query parameter. 
-  - *SSR:* Reads from the request URI.
-  - *Client:* Reads from `window.location.search`.
-- **`get_referer_query_param(name)`**: Reads a query parameter from the `Referer` header. 
-  - *Note:* Essential for server functions where the current request URI is the endpoint, but you need the original page's context.
-- **`get_header(name)`**: Reads an arbitrary HTTP header by name.
-  - *SSR:* Reads from `http::request::Parts`.
-  - *Client:* Returns `None`.
-- **`set_header(name, value)`**: Sets an arbitrary HTTP header.
-  - *SSR:* Inserts into `leptos_axum::ResponseOptions`.
-  - *Client:* No-op.
 
 ## Server-Side Setup
 
-In order for the isomorphic helpers to access request data on the server, you **must** use `.leptos_routes_with_context` in your Axum server setup. This provides the `http::request::Parts` and `leptos_axum::ResponseOptions` to the Leptos context.
+### 1. Middleware
+
+You **must** add the `.hydrated()` middleware to your Axum router.
 
 ```rust
 // src/main.rs (Server)
-let app: Router = Router::new()
-    .leptos_routes_with_context(
-        &leptos_options,
-        routes,
-        || {}, // Additional context providers
-        move || shell(),
-    )
+use leptos_hydrated::HydratedRouterExt;
+
+let app = Router::new()
+    .leptos_routes(&leptos_options, routes, {
+        let leptos_options = leptos_options.clone();
+        move || shell(leptos_options)
+    })
+    .fallback(leptos_axum::file_and_error_handler)
+    .hydrated() // <--- Add this before .with_state()
     .with_state(leptos_options);
 ```
 
-## Why use this instead of a standard `Resource`?
 
-Standard Leptos `Resource`s are fantastic for data that lives on the server and needs to be serialized to the client. However, they can cause "flickers" or require `Suspense` masks for data you **already have** on both sides (like a cookie).
 
-`leptos_hydrated` allows you to:
-1.  **Render immediately** on the server using a synchronous value.
-2.  **Hydrate immediately** on the client with that same value (no flicker!).
-3.  **Refresh in the background** once the WASM is ready to get the latest data.
+## Isomorphic Helpers
 
-### Secure Hydration (HTTP-only Cookies)
+- **`get_cookie(name)`**: Reads a cookie by name. 
+- **`set_cookie(name, value, options)`**: Sets a cookie.
+- **`get_query_param(name)`**: Reads a URL query parameter.
 
-When using sensitive data like authentication tokens in HTTP-only cookies, the client JavaScript cannot read the cookie to initialize state. `leptos_hydrated` solves this by allowing the server to read the cookie, fetch the corresponding user data, and inject *only the result* into the HTML.
+## Utilities
 
-The client hydrates the user data synchronously, while the secret token remains hidden from JavaScript.
-
-## Documentation
-
-Full API documentation is available at [docs.rs/leptos_hydrated](https://docs.rs/leptos_hydrated).
+- **`isomorphic! { state => ..., hydrate => ... }`**: Branch logic for server-seed vs client-hydration.
+- **`use_hydrated_context<T>()`**: Accesses state from context (returns `Option<RwSignal<T>>`).

@@ -1,10 +1,10 @@
-use leptos::prelude::*;
-use leptos_hydrated::use_hydrated;
 use crate::states::ReferralState;
+use leptos::prelude::*;
+use leptos_hydrated::use_hydrated_context;
 
 #[component]
 pub fn PromoBanner() -> impl IntoView {
-    let state = use_hydrated::<ReferralState>();
+    let state = use_hydrated_context::<ReferralState>();
 
     view! {
         <div

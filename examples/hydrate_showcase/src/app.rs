@@ -1,12 +1,9 @@
-use leptos::prelude::*;
-use leptos_hydrated::*;
-use leptos_meta::{MetaTags, Stylesheet, Title, provide_meta_context};
-use leptos_router::{StaticSegment, components::*};
-
 use crate::components::*;
 use crate::states::*;
-
-
+use leptos::prelude::*;
+use leptos_hydrated::*;
+use leptos_meta::{provide_meta_context, MetaTags, Stylesheet, Title};
+use leptos_router::{components::*, StaticSegment};
 
 pub fn shell(options: LeptosOptions) -> impl IntoView {
     view! {
@@ -16,7 +13,7 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
                 <meta charset="utf-8" />
                 <meta name="viewport" content="width=device-width, initial-scale=1" />
                 <AutoReload options=options.clone() />
-                <HydrationScripts options />
+                <HydrationScripts options=options.clone() />
                 <MetaTags />
             </head>
             <body>
@@ -35,26 +32,25 @@ pub fn App() -> impl IntoView {
         <Title text="Hydrate Showcase" />
 
         <div id="app-root">
-            <HydrateContext<ProfileState>>
-                <HydrateContext<SecureUserData>>
-                    <Router>
-                        <HydrateContext<TabState>>
-                            <HydrateContext<ReferralState>>
-                                <ThemeWrapper>
-                                    <PromoBanner />
-                                    <Routes fallback=|| "Page not found.".into_view()>
-                                        <Route path=StaticSegment("") view=HomePage />
-                                    </Routes>
-                                </ThemeWrapper>
-                            </HydrateContext<ReferralState>>
-                        </HydrateContext<TabState>>
-                    </Router>
-                </HydrateContext<SecureUserData>>
-            </HydrateContext<ProfileState>>
+            <HydratedContext<ProfileState> global=true />
+            <HydratedContext<ThemeState> global=true />
+            <HydratedContext<SecureUserData>>
+                <Router>
+                    <HydratedContext<TabState>>
+                        <HydratedContext<ReferralState>>
+                            <ThemeWrapper>
+                                <PromoBanner />
+                                <Routes fallback=|| "Page not found.".into_view()>
+                                    <Route path=StaticSegment("") view=HomePage />
+                                </Routes>
+                            </ThemeWrapper>
+                        </HydratedContext<ReferralState>>
+                    </HydratedContext<TabState>>
+                </Router>
+            </HydratedContext<SecureUserData>>
         </div>
     }
 }
-
 
 #[component]
 fn HomePage() -> impl IntoView {

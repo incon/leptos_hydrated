@@ -1,9 +1,11 @@
 #[cfg(feature = "hydrate")]
-use wasm_bindgen::prelude::*;
+mod hydrate_imports {
+    pub use wasm_bindgen::prelude::*;
+    pub use wasm_bindgen::{JsCast, JsValue};
+    pub use web_sys::{IdbDatabase, IdbOpenDbRequest, IdbRequest, IdbTransactionMode};
+}
 #[cfg(feature = "hydrate")]
-use wasm_bindgen::JsCast;
-#[cfg(feature = "hydrate")]
-use web_sys::{IdbDatabase, IdbOpenDbRequest, IdbRequest, IdbTransactionMode};
+use hydrate_imports::*;
 
 #[cfg(feature = "hydrate")]
 pub async fn get_db() -> Result<IdbDatabase, String> {
@@ -79,7 +81,7 @@ pub async fn set_item(key: &str, value: &str) -> Result<(), String> {
         .map_err(|e| format!("{:?}", e))?;
     let store = tx.object_store("state").map_err(|e| format!("{:?}", e))?;
     store
-        .put_with_key(&JsValue::from_str(value), &JsValue::from_str(key))
+        .put_with_key(&JsValue::from(value), &JsValue::from(key))
         .map_err(|e| format!("{:?}", e))?;
     Ok(())
 }

@@ -1,12 +1,14 @@
+use crate::components::{TabPanel, UpdateProfileForm};
+use crate::states::{ProfileState, ToggleLoginServer, UpdateProfile};
+use leptos::form::ActionForm;
 use leptos::prelude::*;
-use leptos_hydrated::use_hydrated;
-use crate::states::{ProfileState, UpdateProfile};
-use crate::components::{UpdateProfileForm, TabPanel};
+use leptos_hydrated::use_hydrated_context;
 
 #[component]
 pub fn ReactivityTab(tab: &'static str) -> impl IntoView {
-    let profile_state = use_hydrated::<ProfileState>();
+    let profile_state = use_hydrated_context::<ProfileState>();
     let update_profile_action = ServerAction::<UpdateProfile>::new();
+    let toggle_login = ServerAction::<ToggleLoginServer>::new();
 
     // Sync the profile state when the update action succeeds
     Effect::new(move |_| {
@@ -15,6 +17,13 @@ pub fn ReactivityTab(tab: &'static str) -> impl IntoView {
                 s.is_authenticated = true;
                 s.profile = Some(new_profile);
             });
+        }
+    });
+
+    // Reload after login toggle so updated session cookie is applied
+    Effect::new(move |_| {
+        if let Some(Ok(new_state)) = toggle_login.value().get() {
+            profile_state.set(new_state);
         }
     });
 
@@ -29,12 +38,9 @@ pub fn ReactivityTab(tab: &'static str) -> impl IntoView {
                             <>
                                 <p>
                                     "Update your profile data using this form. The default values are pre-populated from the "
-                                    <strong>"HydrateContext"</strong> " state."
+                                    <strong>"HydratedContext"</strong> " state."
                                 </p>
-                                <UpdateProfileForm
-                                    action=update_profile_action
-                                    profile=s.profile
-                                />
+                                <UpdateProfileForm action=update_profile_action profile=s.profile />
                                 <p class="note">
                                     "After submitting, the state will be updated reactively in the UI and synchronized with your session cookie."
                                 </p>
@@ -45,9 +51,11 @@ pub fn ReactivityTab(tab: &'static str) -> impl IntoView {
                         view! {
                             <div class="guest-state">
                                 <p>"You must be logged in to edit your profile."</p>
-                                <button class="btn btn-primary" on:click=move |_| ProfileState::toggle_login(profile_state)>
-                                    "Log In Now"
-                                </button>
+                                <ActionForm action=toggle_login>
+                                    <button type="submit" class="btn btn-primary">
+                                        "Log In Now"
+                                    </button>
+                                </ActionForm>
                             </div>
                         }
                             .into_any()

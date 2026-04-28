@@ -1,29 +1,25 @@
-
 #[cfg(feature = "ssr")]
 #[tokio::main]
 async fn main() {
     use axum::Router;
+    use hydrate_showcase::app::*;
     use leptos::logging::log;
     use leptos::prelude::*;
-    use leptos_axum::{generate_route_list, LeptosRoutes};
-    use hydrate_showcase::app::*;
+    use leptos_axum::{LeptosRoutes, generate_route_list};
 
-    let conf = get_configuration(None).unwrap();
+    let conf = get_configuration(Some("examples/hydrate_showcase/Cargo.toml")).unwrap();
     let addr = conf.leptos_options.site_addr;
     let leptos_options = conf.leptos_options;
     // Generate the list of routes in your Leptos App
     let routes = generate_route_list(App);
 
+    use leptos_hydrated::HydratedRouterExt;
     let app = Router::new()
-        .leptos_routes_with_context(
-            &leptos_options,
-            routes,
-            || {},
-            {
-                let leptos_options = leptos_options.clone();
-                move || shell(leptos_options.clone())
-            },
-        )
+        .leptos_routes(&leptos_options, routes, {
+            let leptos_options = leptos_options.clone();
+            move || shell(leptos_options.clone())
+        })
+        .hydrated()
         .fallback(leptos_axum::file_and_error_handler(shell))
         .with_state(leptos_options);
 
