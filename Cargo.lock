@@ -1273,7 +1273,7 @@ dependencies = [
 
 [[package]]
 name = "leptos_hydrated"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "any_spawner",
  "axum",
@@ -1290,7 +1290,6 @@ dependencies = [
  "serde_urlencoded",
  "tokio",
  "tower",
- "urlencoding",
  "wasm-bindgen",
  "web-sys",
 ]
