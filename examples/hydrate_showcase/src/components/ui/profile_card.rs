@@ -1,10 +1,10 @@
 use leptos::prelude::*;
-use leptos_hydrated::{hydrated_signal, Hydratable};
+use leptos_hydrated::use_hydrated_context;
 use crate::states::ProfileState;
 
 #[component]
 pub fn ProfileCard() -> impl IntoView {
-    let state = hydrated_signal(ProfileState::initial());
+    let state = use_hydrated_context::<ProfileState>();
 
     view! {
         <div class="card profile-card">

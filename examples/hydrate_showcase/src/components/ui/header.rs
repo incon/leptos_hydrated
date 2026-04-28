@@ -1,12 +1,12 @@
 use crate::states::{ProfileState, ThemeState, ToggleLoginServer, ToggleThemeServer};
 use leptos::form::ActionForm;
 use leptos::prelude::*;
-use leptos_hydrated::{hydrated_signal, Hydratable};
+use leptos_hydrated::use_hydrated_context;
 
 #[component]
 pub fn Header() -> impl IntoView {
-    let profile_state = hydrated_signal(ProfileState::initial());
-    let theme_state = hydrated_signal(ThemeState::initial());
+    let profile_state = use_hydrated_context::<ProfileState>();
+    let theme_state = use_hydrated_context::<ThemeState>();
     let toggle_theme = ServerAction::<ToggleThemeServer>::new();
     let toggle_login = ServerAction::<ToggleLoginServer>::new();
 

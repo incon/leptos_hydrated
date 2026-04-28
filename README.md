@@ -1,52 +1,64 @@
 # Leptos Hydrated
 
-A library for **flicker-free interactive state hydration** in [Leptos 0.8](https://leptos.dev/).
+A library for flicker-free interactive state hydration in [Leptos 0.8](https://leptos.dev/).
 
-`leptos_hydrated` is ideal for bootstrapping state that you **already have or can have on both sides** (isomorphic data), such as cookies, URL parameters, or locally cached state. By initializing signals immediately with server-provided state and synchronizing them once the browser is active, you eliminate the "loading flicker" common in SSR applications.
+`leptos_hydrated` is ideal for bootstrapping state that you already have or can have on both sides (isomorphic data), such as cookies or URL parameters. By initializing signals immediately with server-provided state and synchronizing them once the browser is active, you eliminate the "loading flicker" common in SSR applications.
 
 ## How it Works
 
-1.  **Server-Side Render (SSR):** `initial()` is called on the server. The result is serialized into the HTML shell.
-2.  **Hydration:** The client reads the serialized state from the HTML and initializes the signal immediately — **zero flicker**.
+1.  **Server-Side Render (SSR):** `initial()` is called on the server. The result is serialized into a deterministic injection stream in the HTML shell.
+2.  **Hydration:** The client reads the serialized state from the stream in the same order and initializes the signal immediately: **zero flicker**.
 3.  **Synchronization:** Once the WASM is active, `initial()` is re-run on the client to synchronize with the current browser state (e.g., reading a JS-accessible cookie).
-4.  **Lifecycle Hooks:** Use `on_hydrate` to execute any client-side code immediately after hydration (e.g., event listeners, storage synchronization).
+4.  **Lifecycle Hooks:** Use `on_hydrate` to execute any client-side code immediately after hydration (e.g., event listeners).
 
-## Hydration Scopes
+## Hydration Accessors
 
-`leptos_hydrated` offers three levels of state scope, ordered by increasing granularity:
+`leptos_hydrated` mirrors standard Leptos signal patterns to make state management intuitive.
 
-### 1. Local
+### 1. Local (Independent)
 
-Use `hydrated_signal` directly in a component. This creates a hydrated signal that is unique to this component instance and is **not** shared via context.
+Use `hydrated_signal` to create a new, independent hydrated signal. This works exactly like `RwSignal::new(T)`, but it is hydration-aware.
 
 ```rust
 #[component]
 fn MyComponent() -> impl IntoView {
-    // This state is unique to this instance of MyComponent
+    // This state is unique to this component instance
     let state = hydrated_signal(MyState::initial());
-    // ...
+    
+    view! {
+        <p>"Count: " {move || state.get().count}</p>
+    }
 }
 ```
 
-### 2. Scoped
+### 2. Scoped (Shared)
 
-Wrap a section of your component tree with `<HydratedContext<T>>`. This provides the hydrated state to all descendants in that subtree.
+Wrap a section of your component tree with `<HydratedContext<T>>` to share a hydrated signal. Use `use_hydrated_context<T>()` in descendants to access it.
 
 ```rust
 #[component]
 fn Feature() -> impl IntoView {
     view! {
         <HydratedContext<MyState>>
-            // All descendants can access the same MyState
             <Descendant />
         </HydratedContext<MyState>>
     }
 }
+
+#[component]
+fn Descendant() -> impl IntoView {
+    // Access the shared signal from context
+    let state = use_hydrated_context::<MyState>();
+    
+    view! {
+        <p>{move || state.get().name}</p>
+    }
+}
 ```
 
-### 3. Global
+### 3. Global (Shared)
 
-Use `<HydratedContext<T> global=true />` (typically in your app shell). This provides the state globally across your entire application.
+Use `<HydratedContext<T> global=true />` (typically in your app shell) to provide state globally across your entire application.
 
 ```rust
 #[component]
@@ -63,7 +75,7 @@ fn App() -> impl IntoView {
 
 ### 1. Define your State with `Hydratable`
 
-Implement the [`Hydratable`] trait to define how your state is initialized and synchronized.
+Implement the `Hydratable` trait to define how your state is initialized and synchronized.
 
 ```rust
 use leptos::prelude::*;
@@ -71,43 +83,45 @@ use leptos_hydrated::*;
 use serde::{Serialize, Deserialize};
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Debug)]
-pub struct ThemeState {
-    pub theme: String,
-}
+pub struct ThemeState(pub String);
 
 impl Hydratable for ThemeState {
     fn initial() -> Self {
         // Use isomorphic helpers to read from cookies on both sides.
         let theme = get_cookie("theme").unwrap_or_else(|| "dark".into());
-        ThemeState { theme }
+        ThemeState(theme)
     }
 
     #[cfg(not(feature = "ssr"))]
     fn on_hydrate(&self, state: RwSignal<Self>) {
-        // Optional: Execute code in the browser after hydration
+        // Optional: Execute code in the browser immediately after hydration
+        leptos::logging::log!("Theme hydrated: {}", self.0);
     }
 }
 ```
 
-### 2. Accessing Hydrated State
+### 2. Manual Injection with `isomorphic!`
 
-You can use `hydrated_signal(T::initial())` to access state. It will automatically check if a provider (from `HydratedContext`) exists in the context; if so, it uses the shared signal, otherwise it creates a local one.
+For custom hydration logic, use `inject_state()` on the server and `use_injected_state<T>()` in the browser within an `isomorphic!` block.
 
 ```rust
-#[component]
-fn MainContent() -> impl IntoView {
-    let state = hydrated_signal(ThemeState::initial());
-    view! {
-        <p>"Theme: " {move || state.get().theme}</p>
+let my_value = isomorphic! {
+    state => {
+        let value = MyState { count: 42 };
+        value
+    },
+    hydrate => {
+        // Pull the next state from the stream (Client only)
+        use_injected_state::<MyState>().unwrap_or_else(|| MyState { count: 0 })
     }
-}
+};
 ```
 
 ## Server-Side Setup
 
-### Middleware
+### 1. Middleware
 
-You **must** add the `.hydrated()` middleware to your Axum router. This middleware handles collecting the state during rendering and injecting it into the HTML. It also provides the necessary request context for isomorphic helpers (like `get_cookie`).
+You **must** add the `.hydrated()` middleware to your Axum router.
 
 ```rust
 // src/main.rs (Server)
@@ -123,35 +137,36 @@ let app = Router::new()
     .with_state(leptos_options);
 ```
 
-## Isomorphic Helpers
+### 2. App Shell
 
-These helpers read and write state consistently on both server and client.
+Include `<HydrationScripts />` in your application shell's `<head>`.
+
+```rust
+pub fn shell(options: LeptosOptions) -> impl IntoView {
+    view! {
+        <!DOCTYPE html>
+        <html>
+            <head>
+                <HydrationScripts options=options />
+                <MetaTags />
+            </head>
+            <body>
+                <App />
+            </body>
+        </html>
+    }
+}
+```
+
+## Isomorphic Helpers
 
 - **`get_cookie(name)`**: Reads a cookie by name. 
 - **`set_cookie(name, value, options)`**: Sets a cookie.
 - **`get_query_param(name)`**: Reads a URL query parameter.
 
-## Environment Utilities
+## Utilities
 
-- **`isomorphic! { state => ..., hydrate => ... }`**: Run different logic for server seed vs client hydration.
-- **`use_hydrated_context<T>()`**: Accesses the hydrated state from context (returns `Option<HydrateSignal<T>>`).
-- **`inject_state(&value)`**: Manually inject a state from the server (SSR only).
-- **`use_injected_state<T>()`**: Reads the next available injected state from the server (client-side only).
-
-### Example: Manual Injection with `isomorphic!`
-
-You can use `inject_state()` on the server and `use_injected_state<T>()` in the browser to handle custom state hydration within an `isomorphic!` block.
-
-```rust
-let my_value = isomorphic! {
-    state => {
-        let value = MyState { count: 42 };
-        inject_state(&value); // Push to injection stream
-        value
-    },
-    hydrate => {
-        use_injected_state::<MyState>().unwrap_or_else(|| MyState { count: 0 })
-    }
-};
-```
-
+- **`isomorphic! { state => ..., hydrate => ... }`**: Branch logic for server-seed vs client-hydration.
+- **`use_hydrated_context<T>()`**: Accesses state from context (returns `Option<RwSignal<T>>`).
+- **`inject_state(&value)`**: Manually push state into the hydration stream (SSR only).
+- **`use_injected_state<T>()`**: Pull the next state from the hydration stream (Client only).

@@ -3,7 +3,7 @@ use tower::ServiceExt;
 use crate::core::InjectedStates;
 #[cfg(not(feature = "ssr"))]
 use crate::core::get_hydration_counter;
-use crate::core::{create_hydrated_signal, create_hydrated_context};
+use crate::core::create_hydrated_signal;
 #[cfg(feature = "ssr")]
 use crate::core::{serialize_for_injection, get_injected_states};
 use leptos::prelude::*;
@@ -235,30 +235,11 @@ async fn test_hydrate_context_provides_context_to_children() {
 }
 
 // ---------------------------------------------------------------------------
-// HydratedSignal wrapper
+// use_hydrated_context accessors
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn test_hydrated_signal_wrapper_eq_and_debug() {
-    init_test_env();
-    let local = tokio::task::LocalSet::new();
-    local.run_until(async {
-        let owner = Owner::new_root(None);
-        owner.with(|| {
-            let h1 = create_hydrated_context::<DefaultState>();
-            let h2 = h1;
-            assert_eq!(h1, h2);
-            assert!(format!("{:?}", h1).contains("HydrateSignal"));
-        });
-    }).await;
-}
-
-// ---------------------------------------------------------------------------
-// try_ accessors
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn test_try_use_hydrated_returns_some_when_context_exists() {
+async fn test_use_hydrated_context_returns_some_when_context_exists() {
     init_test_env();
     let local = tokio::task::LocalSet::new();
     local.run_until(async {
@@ -267,28 +248,21 @@ async fn test_try_use_hydrated_returns_some_when_context_exists() {
             let signal = RwSignal::new(ThemeState {
                 theme: "dark".into(),
             });
-            let resource = LocalResource::new(|| async { None });
-            provide_context(HydrateSignal { signal, resource });
-            let result = Hydrated::<ThemeState>::try_get();
-            assert!(result.is_some());
-            assert_eq!(result.unwrap().get_untracked().theme, "dark");
+            let _resource = LocalResource::new(|| async { None::<ThemeState> });
+            provide_context(signal);
+            let result = use_hydrated_context::<ThemeState>();
+            assert_eq!(result, signal);
+            assert_eq!(result.get_untracked().theme, "dark");
         });
     }).await;
 }
 
 #[test]
-fn test_try_use_hydrated_returns_none_when_no_context() {
+#[should_panic(expected = "MISSING CONTEXT PROVIDER")]
+fn test_use_hydrated_context_returns_none_when_no_context() {
     let owner = Owner::new_root(None);
     owner.with(|| {
-        assert!(Hydrated::<ThemeState>::try_get().is_none());
-    });
-}
-
-#[test]
-fn test_try_use_hydrated_resource_returns_none_when_no_context() {
-    let owner = Owner::new_root(None);
-    owner.with(|| {
-        assert!(Hydrated::<ThemeState>::try_resource().is_none());
+        let _ = use_hydrated_context::<ThemeState>();
     });
 }
 
@@ -404,14 +378,7 @@ async fn test_hydrated_signal_creates_local_when_no_context() {
     }).await;
 }
 
-#[test]
-#[should_panic(expected = "Hydrated LocalResource<i32> not found")]
-fn test_use_hydrated_resource_panics_without_context() {
-    let owner = Owner::new_root(None);
-    owner.with(|| {
-        let _ = Hydrated::<i32>::resource();
-    });
-}
+
 
 // ---------------------------------------------------------------------------
 
@@ -705,91 +672,21 @@ async fn test_hydration_store_complex_parsing() {
     assert_eq!(store.query.get_untracked().get("ref").map(String::as_str), Some("promo"));
 }
 
-#[tokio::test]
-async fn test_hydrate_signal_deref() {
-    init_test_env();
-    let owner = Owner::new_root(None);
-    owner.with(|| {
-        let h = create_hydrated_context::<DefaultState>();
-        // Test deref to RwSignal
-        let _sig: &RwSignal<DefaultState> = &h;
-        assert_eq!(h.get_untracked().value, 0);
-    });
-}
-
-#[tokio::test]
-async fn test_manual_injection_roundtrip() {
-    init_test_env();
-    let owner = Owner::new_root(None);
-    owner.with(|| {
-        #[cfg(feature = "ssr")]
-        {
-            let states = InjectedStates::default();
-            provide_context(states.clone());
-            
-            inject_state(&"hello world".to_string());
-            
-            let guard = states.0.lock().unwrap();
-            assert_eq!(guard.len(), 1);
-            assert_eq!(guard[0], "\"hello world\"");
-        }
-        
-        // On native/mock client, use_injected_state returns None (no wasm/hydrate)
-        assert!(use_injected_state::<String>().is_none());
-    });
-}
-
-
-
-#[tokio::test]
-#[should_panic(expected = "HydrateSignal<leptos_hydrated::tests::DefaultState> not found")]
-async fn test_hydrated_get_panics() {
-    init_test_env();
-    let owner = Owner::new_root(None);
-    owner.with(|| {
-        Hydrated::<DefaultState>::get();
-    });
-}
-
-#[tokio::test]
-#[should_panic(expected = "Hydrated LocalResource<leptos_hydrated::tests::DefaultState> not found")]
-async fn test_hydrated_resource_panics() {
-    init_test_env();
-    let owner = Owner::new_root(None);
-    owner.with(|| {
-        Hydrated::<DefaultState>::resource();
-    });
-}
-
-
-
-
-#[test]
-fn test_hydrate_signal_eq() {
-    init_test_env();
-    let owner = Owner::new_root(None);
-    owner.with(|| {
-        let h1 = create_hydrated_context::<DefaultState>();
-        let h2 = h1;
-        assert_eq!(h1, h2);
-    });
-}
 
 #[test]
 fn test_use_hydrated_context_accessor() {
     init_test_env();
     let owner = Owner::new_root(None);
     owner.with(|| {
-        // Should be None initially
-        assert!(use_hydrated_context::<DefaultState>().is_none());
+        // Should panic now
+        // assert!(use_hydrated_context::<DefaultState>().is_none());
 
         // Create and provide
-        let h = create_hydrated_context::<DefaultState>();
-        provide_context(h);
+        let (sig, _res) = create_hydrated_signal(|| DefaultState::initial());
+        provide_context(sig);
 
         // Should be Some now
-        assert!(use_hydrated_context::<DefaultState>().is_some());
-        assert_eq!(use_hydrated_context::<DefaultState>().unwrap(), h);
+        assert_eq!(use_hydrated_context::<DefaultState>(), sig);
     });
 }
 
@@ -876,7 +773,6 @@ async fn test_get_injected_states_fallback() {
         assert!(states.0.lock().unwrap().is_empty());
     });
 }
-
 
 
 

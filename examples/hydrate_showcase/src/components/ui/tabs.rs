@@ -1,11 +1,11 @@
 use leptos::prelude::*;
 use leptos_router::{components::*, hooks::query_signal};
-use leptos_hydrated::{hydrated_signal, Hydratable};
+use leptos_hydrated::{hydrated_signal, use_hydrated_context, Hydratable};
 use crate::states::{TabState, ReferralState};
 
 #[component]
 pub fn TabPanel(tab: &'static str, children: Children) -> impl IntoView {
-    let tab_state = hydrated_signal(TabState::initial());
+    let tab_state = use_hydrated_context::<TabState>();
     
     view! {
         <div
@@ -30,8 +30,8 @@ pub fn TabPanel(tab: &'static str, children: Children) -> impl IntoView {
 
 #[component]
 pub fn Tabs(children: Children) -> impl IntoView {
-    let tab_state = hydrated_signal(TabState::initial());
-    let referral_state = hydrated_signal(ReferralState::initial());
+    let tab_state = use_hydrated_context::<TabState>();
+    let referral_state = use_hydrated_context::<ReferralState>();
 
     let (tab_query, _) = query_signal::<String>("tab");
     let (ref_query, _) = query_signal::<String>("ref");

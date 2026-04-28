@@ -2,11 +2,11 @@ use crate::components::{TabPanel, UpdateProfileForm};
 use crate::states::{ProfileState, ToggleLoginServer, UpdateProfile};
 use leptos::form::ActionForm;
 use leptos::prelude::*;
-use leptos_hydrated::{hydrated_signal, Hydratable};
+use leptos_hydrated::use_hydrated_context;
 
 #[component]
 pub fn ReactivityTab(tab: &'static str) -> impl IntoView {
-    let profile_state = hydrated_signal(ProfileState::initial());
+    let profile_state = use_hydrated_context::<ProfileState>();
     let update_profile_action = ServerAction::<UpdateProfile>::new();
     let toggle_login = ServerAction::<ToggleLoginServer>::new();
 

@@ -76,10 +76,12 @@ impl Hydratable for OnlineState {
         use leptos_use::use_event_listener;
 
         let _ = use_event_listener(web_sys::window(), ev::online, move |_| {
+            leptos::logging::log!("PWA: Application is now online");
             online_state.update(|s| s.online = true);
         });
 
         let _ = use_event_listener(web_sys::window(), ev::offline, move |_| {
+            leptos::logging::log!("PWA: Application is now offline");
             online_state.update(|s| s.online = false);
         });
     }

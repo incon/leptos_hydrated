@@ -13,6 +13,7 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
                 <meta charset="utf-8" />
                 <meta name="viewport" content="width=device-width, initial-scale=1" />
                 <AutoReload options=options.clone() />
+                <HydrationScripts options=options.clone() />
                 <MetaTags />
             </head>
             <body>
@@ -32,6 +33,7 @@ pub fn App() -> impl IntoView {
 
         <div id="app-root">
             <HydratedContext<ProfileState> global=true />
+            <HydratedContext<ThemeState> global=true />
             <HydratedContext<SecureUserData>>
                 <Router>
                     <HydratedContext<TabState>>

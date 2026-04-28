@@ -29,7 +29,9 @@
 //!
 //! ### 1. Local
 //!
-//! Use `hydrated_signal` directly in a component. This creates a hydrated signal that is unique to this component instance and is **not** shared via context.
+//! Each call to `hydrated_signal` creates a new, independent hydrated signal.
+//! This is the primary entry point for hydrated state. Synchronization is
+//! handled automatically via a deterministic hydration counter.
 //!
 //! ```rust,no_run
 //! # use leptos::prelude::*;
@@ -38,6 +40,7 @@
 //! # impl Hydratable for MyState { fn initial() -> Self { Self } }
 //! #[component]
 //! fn MyComponent() -> impl IntoView {
+//!     // Always creates a new, independent signal
 //!     let state = hydrated_signal(MyState::initial());
 //!     // ...
 //! }
@@ -45,14 +48,14 @@
 //!
 //! ### 2. Scoped
 //!
-//! Wrap a section of your component tree with `<HydratedContext<T>>`. This provides the hydrated state to all descendants in that subtree.
+//! Wrap a section of your component tree with `<HydratedContext<T>>` to share
+//! a hydrated signal. Use `use_hydrated_context<T>()` in descendants to access it.
 //!
 //! ```rust,no_run
 //! # use leptos::prelude::*;
 //! # use leptos_hydrated::*;
 //! # #[derive(Clone, Default, serde::Serialize, serde::Deserialize, PartialEq)] struct MyState;
 //! # impl Hydratable for MyState { fn initial() -> Self { Self } }
-//! # #[component] fn Descendant() -> impl IntoView { view! { "Descendant" } }
 //! #[component]
 //! fn Feature() -> impl IntoView {
 //!     view! {
@@ -60,6 +63,13 @@
 //!             <Descendant />
 //!         </HydratedContext<MyState>>
 //!     }
+//! }
+//!
+//! #[component]
+//! fn Descendant() -> impl IntoView {
+//!     // Access the shared signal from context (returns Option<RwSignal<T>>)
+//!     let state = use_hydrated_context::<MyState>();
+//!     // ...
 //! }
 //! ```
 //!
@@ -104,7 +114,8 @@
 //!
 //!     #[cfg(not(feature = "ssr"))]
 //!     fn on_hydrate(&self, state: RwSignal<Self>) {
-//!         // Optional: Do something in the browser after hydration
+//!         // Optional: Execute code in the browser after hydration
+//!         leptos::logging::log!("Hydrated theme: {}", self.theme);
 //!     }
 //! }
 //!
@@ -161,9 +172,7 @@
 //! # #[derive(serde::Serialize, serde::Deserialize)] struct MyState { count: i32 }
 //! let my_value = isomorphic! {
 //!     state => {
-//!         let value = MyState { count: 42 };
-//!         inject_state(&value);
-//!         value
+//!         MyState{ count: 42 };
 //!     },
 //!     hydrate => {
 //!         use_injected_state::<MyState>().unwrap_or_else(|| MyState { count: 0 })
@@ -176,8 +185,7 @@
 //!
 //! `leptos_hydrated` supports PWAs loading from an offline shell (CSR mode) by detecting the mounting mode in your `lib.rs` and providing it via context to your components.
 
-mod accessors;
-mod components;
+pub mod components;
 mod core;
 mod helpers;
 mod macros;
@@ -185,9 +193,9 @@ mod macros;
 mod ssr;
 mod traits;
 
-pub use accessors::Hydrated;
 pub use components::HydratedContext;
-pub use core::{hydrated_signal, use_hydrated_context, HydrateSignal, use_injected_state, inject_state};
+pub use core::{hydrated_signal, use_hydrated_context, use_injected_state};
+
 #[allow(unused_imports)]
 pub use helpers::*;
 #[allow(unused_imports)]

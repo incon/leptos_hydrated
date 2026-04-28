@@ -46,6 +46,7 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
                 <link rel="icon" type="image/svg+xml" href=format!("/icon.svg?v={version}") />
                 <link rel="manifest" href="/manifest.json" />
                 <MetaTags />
+                <HydrationScripts options=options.clone() />
                 <Stylesheet id="leptos" href="/pkg/offline_pwa.css" />
                 <script>
                     "if ('serviceWorker' in navigator) {
@@ -55,8 +56,10 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
                 {#[cfg(all(debug_assertions, feature = "ssr"))]
                 {
                     let is_online = OnlineState::initial().online;
-                    is_online.then(|| view! { <AutoReload options=options /> })
+                    is_online.then(|| view! { <AutoReload options=options.clone() /> })
                 }}
+                {#[cfg(not(all(debug_assertions, feature = "ssr")))]
+                { let _ = options; }}
             </head>
             <body>
                 <Pwa was_hydrated=true>

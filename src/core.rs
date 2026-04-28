@@ -35,63 +35,43 @@ pub(crate) fn get_hydration_counter() -> HydrationCounter {
     })
 }
 
-/// A wrapper for a hydrated global signal provided via context.
-pub struct HydrateSignal<T: 'static> {
-    /// The underlying reactive signal.
-    pub signal: RwSignal<T>,
-    /// The resource used for synchronization.
-    pub resource: LocalResource<Option<T>>,
-}
-
-impl<T: 'static> std::fmt::Debug for HydrateSignal<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("HydrateSignal")
-            .field("signal", &self.signal)
-            .finish()
-    }
-}
-
-impl<T: 'static> Clone for HydrateSignal<T> {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-
-impl<T: 'static> Copy for HydrateSignal<T> {}
-
-impl<T: 'static> PartialEq for HydrateSignal<T> {
-    fn eq(&self, other: &Self) -> bool {
-        self.signal == other.signal
-    }
-}
-
-impl<T: 'static> Eq for HydrateSignal<T> {}
-
-/// Accesses the existing hydrated state from context.
-pub fn use_hydrated_context<T>() -> Option<HydrateSignal<T>>
+/// Accesses a hydrated signal of type `T` from the current context.
+///
+/// This is the primary way to share hydrated state between components.
+///
+/// # Panics
+/// Panics in debug mode if the context is missing.
+pub fn use_hydrated_context<T>() -> RwSignal<T>
 where
     T: Hydratable + Clone + Send + Sync + serde::Serialize + serde::de::DeserializeOwned + PartialEq + 'static,
 {
-    use_context::<HydrateSignal<T>>()
+    use_context::<RwSignal<T>>().unwrap_or_else(|| {
+        #[cfg(debug_assertions)]
+        panic!(
+            "\n\n[leptos_hydrated] MISSING CONTEXT PROVIDER\n\
+            You are calling use_hydrated_context::<{}>() but no <HydratedContext<{0}>> was found in the parent tree.\n\n\
+            FIX:\n\
+            Wrap your component (or the whole app) in a provider:\n\
+            <HydratedContext<{0}>>\n\
+            \x20\x20\x20\x20<App />\n\
+            </HydratedContext<{0}>>\n\n",
+            std::any::type_name::<T>()
+        );
+        
+        #[cfg(not(debug_assertions))]
+        hydrated_signal(T::initial())
+    })
 }
 
 /// Explicitly creates a new hydrated signal from `T::initial()`.
 /// This is used by providers to ensure a fresh state is created for a new scope.
-pub(crate) fn create_hydrated_context<T>() -> HydrateSignal<T>
+pub(crate) fn create_hydrated_context<T>() -> (RwSignal<T>, LocalResource<Option<T>>)
 where
     T: Hydratable + Clone + Send + Sync + serde::Serialize + serde::de::DeserializeOwned + PartialEq + 'static,
 {
-    let (signal, resource) = create_hydrated_signal(T::initial);
-    HydrateSignal { signal, resource }
+    create_hydrated_signal(T::initial)
 }
 
-impl<T: 'static> std::ops::Deref for HydrateSignal<T> {
-    type Target = RwSignal<T>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.signal
-    }
-}
 
 #[cfg(feature = "ssr")]
 pub(crate) fn serialize_for_injection<T: serde::Serialize>(value: &T) -> String {
@@ -109,11 +89,23 @@ pub(crate) fn read_injected_state<T: serde::de::DeserializeOwned>(index: usize) 
         let doc = document();
         let script_id = "__lh_data";
 
-        let el: JsValue = js_sys::Reflect::get(&doc, &JsValue::from_str("getElementById"))
-            .ok()
-            .and_then(|f| f.dyn_into::<js_sys::Function>().ok())
-            .and_then(|f| f.call1(&doc, &JsValue::from_str(script_id)).ok())
-            .filter(|v: &JsValue| !v.is_null() && !v.is_undefined())?;
+        let el = doc.get_element_by_id(script_id);
+        if el.is_none() {
+            #[cfg(debug_assertions)]
+            panic!(
+                "\n\n[leptos_hydrated] MISSING HYDRATION SCRIPTS\n\
+                You are using a hydrated signal but <HydrationScripts /> is missing from your HTML head.\n\n\
+                FIX:\n\
+                <head>\n\
+                \x20\x20\x20\x20...\n\
+                \x20\x20\x20\x20<HydrationScripts options=options />\n\
+                </head>\n\n"
+            );
+            
+            #[cfg(not(debug_assertions))]
+            return None;
+        }
+        let el = el.unwrap();
 
         let text = js_sys::Reflect::get(&el, &JsValue::from_str("textContent"))
             .ok()
@@ -148,44 +140,30 @@ pub(crate) fn get_injected_states() -> InjectedStates {
             #[cfg(feature = "ssr")]
             {
                 use crate::ssr::HydrationMiddlewareMarker;
-                // Only panic if we are in a context that has been matched by Axum (a real request)
+                // Only panic in debug mode if we are in a context that has been matched by Axum (a real request)
                 // but the hydration marker is missing.
-                if parts.extensions.get::<axum::extract::MatchedPath>().is_some() 
-                   && parts.extensions.get::<HydrationMiddlewareMarker>().is_none() 
+                #[cfg(debug_assertions)]
                 {
-                    panic!(
-                        "\n\n[leptos_hydrated] MISSING MIDDLEWARE SETUP\n\
-                        Hydrated signals require the `.hydrated()` middleware to be added to your Axum Router.\n\n\
-                        FIX:\n\
-                        use leptos_hydrated::HydratedRouterExt;\n\
-                        let app = Router::new()\n\
-                        \x20\x20\x20\x20.leptos_routes(...)\n\
-                        \x20\x20\x20\x20.hydrated() // <--- Add this before .with_state()\n\
-                        \x20\x20\x20\x20.with_state(leptos_options);\n\n"
-                    );
+                    if parts.extensions.get::<axum::extract::MatchedPath>().is_some() 
+                    && parts.extensions.get::<HydrationMiddlewareMarker>().is_none() 
+                    {
+                        panic!(
+                            "\n\n[leptos_hydrated] MISSING MIDDLEWARE SETUP\n\
+                            Hydrated signals require the `.hydrated()` middleware to be added to your Axum Router.\n\n\
+                            FIX:\n\
+                            use leptos_hydrated::HydratedRouterExt;\n\
+                            let app = Router::new()\n\
+                            \x20\x20\x20\x20.leptos_routes(...)\n\
+                            \x20\x20\x20\x20.hydrated() // <--- Add this before .with_state()\n\
+                            \x20\x20\x20\x20.with_state(leptos_options);\n\n"
+                        );
+                    }
                 }
             }
             InjectedStates::default()
         }
     } else {
         InjectedStates::default()
-    }
-}
-
-/// Manually injects a state from the server to be consumed by the client.
-/// 
-/// This is the server-side counterpart to `use_injected_state()`.
-pub fn inject_state<T>(_value: &T)
-where
-    T: serde::Serialize,
-{
-    #[cfg(feature = "ssr")]
-    {
-        let states = get_injected_states();
-        if let Ok(mut states_guard) = states.0.lock() {
-            let json = serialize_for_injection(_value);
-            states_guard.push(json);
-        }
     }
 }
 
@@ -216,20 +194,16 @@ where
 /// This hook automatically manages signal hydration from a `LocalResource`
 /// that calls `T::initial()`.
 ///
-/// Creates a new hydrated signal or retrieves one from context.
+/// Creates a new hydrated signal.
 ///
-/// This is the primary entry point for hydrated state. If a `HydrateSignal<T>`
-/// is found in the current context (provided by `HydratedContext`), it will be returned.
-/// Otherwise, a new hydrated signal is created with the provided fallback value.
+/// This is the primary entry point for hydrated state. Each call to this function
+/// creates a new, independent signal. Synchronization between server and client
+/// is handled automatically via a deterministic hydration counter.
 pub fn hydrated_signal<T>(fallback: T) -> RwSignal<T>
 where
     T: Hydratable + Clone + Send + Sync + serde::Serialize + serde::de::DeserializeOwned + PartialEq + 'static,
 {
-    if let Some(s) = use_context::<HydrateSignal<T>>() {
-        s.signal
-    } else {
-        create_hydrated_signal(|| fallback).0
-    }
+    create_hydrated_signal(|| fallback).0
 }
 
 /// The core hook for creating a hydrated signal.
@@ -265,6 +239,12 @@ where
     };
 
     let signal = RwSignal::new(initial_val.clone());
+
+    #[cfg(not(feature = "ssr"))]
+    {
+        initial_val.on_hydrate(signal);
+    }
+
     let first_run = StoredValue::new(true);
 
     let resource = LocalResource::new(move || {
@@ -298,11 +278,8 @@ where
         });
     }
 
-    #[cfg(not(feature = "ssr"))]
-    {
-        initial_val.on_hydrate(signal);
-    }
-
     (signal, resource)
 }
+
+
 
