@@ -1,11 +1,9 @@
 use super::*;
-use tower::ServiceExt;
-use crate::core::InjectedStates;
-#[cfg(not(feature = "ssr"))]
-use crate::core::get_hydration_counter;
-use crate::core::create_hydrated_signal;
 #[cfg(feature = "ssr")]
-use crate::core::{serialize_for_injection, get_injected_states};
+use tower::ServiceExt;
+#[cfg(feature = "ssr")]
+use crate::core::{serialize_for_injection, get_injected_states, InjectedStates};
+use crate::core::create_hydrated_signal;
 use leptos::prelude::*;
 use leptos::reactive::owner::Owner;
 use serde::{Deserialize, Serialize};
@@ -557,17 +555,15 @@ async fn test_hydrated_signal_auto_id_ssr() {
 
 #[cfg(not(feature = "ssr"))]
 #[tokio::test]
-async fn test_hydrated_signal_counter_client() {
+async fn test_hydrated_signal_client_no_panic() {
     init_test_env();
     let local = tokio::task::LocalSet::new();
     local.run_until(async {
         let owner = Owner::new_root(None);
         owner.with(|| {
+            // Should not panic even if global data is missing
             let _ = hydrated_signal(DefaultState::initial());
             let _ = hydrated_signal(DefaultState::initial());
-            
-            let counter = get_hydration_counter();
-            assert_eq!(*counter.0.lock().unwrap(), 2);
         });
     }).await;
 }
@@ -604,7 +600,7 @@ async fn test_middleware_injects_script() {
     let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
     let body_str = String::from_utf8_lossy(&body_bytes);
     
-    assert!(body_str.contains("__lh_data"), "Body should contain __lh_data script. Got: {}", body_str);
+    assert!(body_str.contains("window.__lh_data"), "Body should contain window.__lh_data script. Got: {}", body_str);
     assert!(body_str.contains(r#"{"test":true}"#));
 }
 
@@ -615,7 +611,7 @@ async fn test_synchronization_equality_check() {
         let owner = Owner::new_root(None);
         owner.with(|| {
             // 1. Create signal with initial 10
-            let (signal, _resource) = create_hydrated_signal(|| DefaultState { value: 10 });
+            let (signal, _resource) = create_hydrated_signal::<DefaultState, _>(|| DefaultState { value: 10 });
             assert_eq!(signal.get_untracked().value, 10);
             
             // 2. Set to 20
@@ -673,21 +669,24 @@ async fn test_hydration_store_complex_parsing() {
 }
 
 
-#[test]
-fn test_use_hydrated_context_accessor() {
+#[tokio::test]
+async fn test_use_hydrated_context_accessor() {
     init_test_env();
-    let owner = Owner::new_root(None);
-    owner.with(|| {
-        // Should panic now
-        // assert!(use_hydrated_context::<DefaultState>().is_none());
+    let local = tokio::task::LocalSet::new();
+    local.run_until(async {
+        let owner = Owner::new_root(None);
+        owner.with(|| {
+            // Should panic now
+            // assert!(use_hydrated_context::<DefaultState>().is_none());
 
-        // Create and provide
-        let (sig, _res) = create_hydrated_signal(|| DefaultState::initial());
-        provide_context(sig);
+            // Create and provide
+            let (sig, _res) = create_hydrated_signal::<DefaultState, _>(|| DefaultState::initial());
+            provide_context(sig);
 
-        // Should be Some now
-        assert_eq!(use_hydrated_context::<DefaultState>(), sig);
-    });
+            // Should be Some now
+            assert_eq!(use_hydrated_context::<DefaultState>(), sig);
+        });
+    }).await;
 }
 
 #[cfg(feature = "ssr")]
@@ -744,17 +743,20 @@ async fn test_middleware_non_html_response() {
 #[tokio::test]
 async fn test_resource_closure_coverage() {
     init_test_env();
-    let owner = Owner::new_root(None);
-    owner.with(|| {
-        let (sig, res) = create_hydrated_signal(|| DefaultState { value: 10 });
-        
-        // Trigger first run
-        let _ = res.get(); // Triggers the closure
-        
-        // Set a new value and trigger second run
-        sig.set(DefaultState { value: 20 });
-        let _ = res.get();
-    });
+    let local = tokio::task::LocalSet::new();
+    local.run_until(async {
+        let owner = Owner::new_root(None);
+        owner.with(|| {
+            let (sig, res) = create_hydrated_signal::<DefaultState, _>(|| DefaultState { value: 10 });
+            
+            // Trigger first run
+            let _ = res.get(); // Triggers the closure
+            
+            // Set a new value and trigger second run
+            sig.set(DefaultState { value: 20 });
+            let _ = res.get();
+        });
+    }).await;
 }
 
 #[cfg(feature = "ssr")]

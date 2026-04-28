@@ -59,7 +59,9 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
                     is_online.then(|| view! { <AutoReload options=options.clone() /> })
                 }}
                 {#[cfg(not(all(debug_assertions, feature = "ssr")))]
-                { let _ = options; }}
+                {
+                    let _ = options;
+                }}
             </head>
             <body>
                 <Pwa was_hydrated=true>
@@ -81,33 +83,32 @@ pub fn App() -> impl IntoView {
     provide_meta_context();
 
     view! {
-        <HydratedContext<OnlineState> global=true>
-            <div id="app-root">
-                <OnlineStatus />
-                <div class="app-container">
-                    <HydratedContext<TodoState> global=true>
-                        <TodoPersistence />
-                        <Router>
-                            <main>
-                                <Routes fallback=|| "Page not found.".into_view()>
-                                    <Route path=StaticSegment("") view=TodoPage />
-                                    <Route
-                                        path=(StaticSegment("todo"), ParamSegment("id"))
-                                        view=TodoDetailsPage
-                                    />
-                                </Routes>
-                            </main>
-                        </Router>
-                    </HydratedContext<TodoState>>
-                </div>
+        <HydratedContext<OnlineState> global=true />
+        <div id="app-root">
+            <OnlineStatus />
+            <div class="app-container">
+                <HydratedContext<TodoState> global=true>
+                    <TodoPersistence />
+                    <Router>
+                        <main>
+                            <Routes fallback=|| "Page not found.".into_view()>
+                                <Route path=StaticSegment("") view=TodoPage />
+                                <Route
+                                    path=(StaticSegment("todo"), ParamSegment("id"))
+                                    view=TodoDetailsPage
+                                />
+                            </Routes>
+                        </main>
+                    </Router>
+                </HydratedContext<TodoState>>
             </div>
-        </HydratedContext<OnlineState>>
+        </div>
     }
 }
 
 #[component]
 fn OnlineStatus() -> impl IntoView {
-    let online = hydrated_signal(OnlineState::initial());
+    let online = use_hydrated_context::<OnlineState>();
 
     view! {
         <div
@@ -124,9 +125,10 @@ fn OnlineStatus() -> impl IntoView {
 
 #[component]
 fn TodoPersistence() -> impl IntoView {
+    let state = use_hydrated_context::<TodoState>();
+
     #[cfg(not(feature = "ssr"))]
     Effect::new(move |_| {
-        let state = hydrated_signal(TodoState::initial());
         let current = state.get();
 
         if let Ok(js_val) = serde_wasm_bindgen::to_value(&current) {
@@ -138,13 +140,15 @@ fn TodoPersistence() -> impl IntoView {
             }
         }
     });
+    #[cfg(feature = "ssr")]
+    let _ = state;
 
     view! { "" }
 }
 
 #[component]
 fn TodoPage() -> impl IntoView {
-    let state = hydrated_signal(TodoState::initial());
+    let state = use_hydrated_context::<TodoState>();
     let new_todo = RwSignal::new(String::new());
     let new_description = RwSignal::new(String::new());
 
@@ -267,7 +271,7 @@ struct TodoParams {
 #[component]
 fn TodoDetailsPage() -> impl IntoView {
     let params = use_params::<TodoParams>();
-    let state = hydrated_signal(TodoState::initial());
+    let state = use_hydrated_context::<TodoState>();
 
     let todo = move || {
         params

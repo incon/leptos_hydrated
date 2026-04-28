@@ -66,10 +66,10 @@ async fn inject_logic(req: Request, next: Next) -> Response {
         return Response::from_parts(parts, body);
     }
 
-    // Prepare the script tag
+    // Prepare the script tag that sets the global variable
     let json_array = format!("[{}]", injected.join(","));
     let script = format!(
-        "<script id=\"__lh_data\" type=\"application/json\">{}</script>",
+        "<script>window.__lh_data = {};</script>",
         json_array
     );
 

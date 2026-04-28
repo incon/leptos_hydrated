@@ -1,12 +1,12 @@
+use crate::states::{ReferralState, TabState};
 use leptos::prelude::*;
+use leptos_hydrated::use_hydrated_context;
 use leptos_router::{components::*, hooks::query_signal};
-use leptos_hydrated::{hydrated_signal, use_hydrated_context, Hydratable};
-use crate::states::{TabState, ReferralState};
 
 #[component]
 pub fn TabPanel(tab: &'static str, children: Children) -> impl IntoView {
     let tab_state = use_hydrated_context::<TabState>();
-    
+
     view! {
         <div
             class=format!("{}-content", tab)

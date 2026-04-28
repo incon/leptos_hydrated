@@ -1,5 +1,6 @@
 use crate::traits::Hydratable;
 use leptos::prelude::*;
+#[cfg(feature = "ssr")]
 use std::sync::{Arc, Mutex};
 
 #[cfg(feature = "ssr")]
@@ -11,28 +12,27 @@ use http::request::Parts;
 #[derive(Clone, Default, Debug)]
 pub(crate) struct InjectedStates(pub Arc<Mutex<Vec<String>>>);
 
-/// Counter for automatic hydration IDs on the client.
-#[cfg(not(feature = "ssr"))]
-#[derive(Clone, Default, Debug)]
-pub(crate) struct HydrationCounter(pub Arc<Mutex<usize>>);
+#[cfg(all(not(feature = "ssr"), target_arch = "wasm32"))]
+use std::sync::OnceLock;
 
-#[cfg(not(feature = "ssr"))]
-impl HydrationCounter {
-    pub fn next(&self) -> usize {
-        let mut guard = self.0.lock().unwrap();
-        let val = *guard;
-        *guard += 1;
-        val
-    }
-}
+#[cfg(all(not(feature = "ssr"), target_arch = "wasm32"))]
+static HYDRATION_DATA: OnceLock<Option<js_sys::Array>> = OnceLock::new();
 
-#[cfg(not(feature = "ssr"))]
-pub(crate) fn get_hydration_counter() -> HydrationCounter {
-    use_context::<HydrationCounter>().unwrap_or_else(|| {
-        let counter = HydrationCounter::default();
-        provide_context(counter.clone());
-        counter
-    })
+#[cfg(all(not(feature = "ssr"), target_arch = "wasm32"))]
+fn get_hydration_data() -> Option<&'static js_sys::Array> {
+    HYDRATION_DATA.get_or_init(|| {
+        let win = window();
+        js_sys::Reflect::get(&win, &wasm_bindgen::JsValue::from_str("__lh_data"))
+            .ok()
+            .and_then(|v| {
+                if v.is_undefined() || v.is_null() {
+                    None
+                } else {
+                    use wasm_bindgen::JsCast;
+                    v.dyn_into::<js_sys::Array>().ok()
+                }
+            })
+    }).as_ref()
 }
 
 /// Accesses a hydrated signal of type `T` from the current context.
@@ -79,41 +79,12 @@ pub(crate) fn serialize_for_injection<T: serde::Serialize>(value: &T) -> String 
 }
 
 #[cfg(not(feature = "ssr"))]
-pub(crate) fn read_injected_state<T: serde::de::DeserializeOwned>(index: usize) -> Option<T> {
-    #[cfg(all(target_arch = "wasm32", feature = "hydrate"))]
+pub(crate) fn read_injected_state<T: serde::de::DeserializeOwned>() -> Option<T> {
+    #[cfg(all(target_arch = "wasm32", not(feature = "ssr")))]
     {
-        use js_sys::JSON;
-        use wasm_bindgen::JsCast as _;
-        use wasm_bindgen::JsValue;
 
-        let doc = document();
-        let script_id = "__lh_data";
-
-        let el = doc.get_element_by_id(script_id);
-        if el.is_none() {
-            #[cfg(debug_assertions)]
-            panic!(
-                "\n\n[leptos_hydrated] MISSING HYDRATION SCRIPTS\n\
-                You are using a hydrated signal but <HydrationScripts /> is missing from your HTML head.\n\n\
-                FIX:\n\
-                <head>\n\
-                \x20\x20\x20\x20...\n\
-                \x20\x20\x20\x20<HydrationScripts options=options />\n\
-                </head>\n\n"
-            );
-            
-            #[cfg(not(debug_assertions))]
-            return None;
-        }
-        let el = el.unwrap();
-
-        let text = js_sys::Reflect::get(&el, &JsValue::from_str("textContent"))
-            .ok()
-            .and_then(|v| v.as_string())?;
-
-        let js_val = JSON::parse(&text).ok()?;
-        let arr = js_val.dyn_into::<js_sys::Array>().ok()?;
-        let item = arr.get(index as u32);
+        let arr = get_hydration_data()?;
+        let item = arr.shift();
         
         if item.is_null() || item.is_undefined() {
             return None;
@@ -122,9 +93,8 @@ pub(crate) fn read_injected_state<T: serde::de::DeserializeOwned>(index: usize) 
         serde_wasm_bindgen::from_value(item).ok()
     }
 
-    #[cfg(any(not(target_arch = "wasm32"), not(feature = "hydrate")))]
+    #[cfg(any(not(target_arch = "wasm32"), feature = "ssr"))]
     {
-        let _ = index;
         None
     }
 }
@@ -178,9 +148,7 @@ where
 {
     #[cfg(not(feature = "ssr"))]
     {
-        let counter = get_hydration_counter();
-        let index = counter.next();
-        read_injected_state(index)
+        read_injected_state::<T>()
     }
     #[cfg(feature = "ssr")]
     {
@@ -221,9 +189,7 @@ where
 {
     #[cfg(not(feature = "ssr"))]
     let initial_val = {
-        let counter = get_hydration_counter();
-        let index = counter.next();
-        let injected = read_injected_state::<T>(index);
+        let injected = read_injected_state::<T>();
         injected.unwrap_or_else(fallback)
     };
 
