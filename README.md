@@ -134,6 +134,7 @@ These helpers read and write state consistently on both server and client.
 ## Environment Utilities
 
 - **`isomorphic! { state => ..., hydrate => ... }`**: Run different logic for server seed vs client hydration.
+- **`use_hydrated_context<T>()`**: Accesses the hydrated state from context (returns `Option<HydrateSignal<T>>`).
 - **`inject_state(&value)`**: Manually inject a state from the server (SSR only).
 - **`use_injected_state<T>()`**: Reads the next available injected state from the server (client-side only).
 

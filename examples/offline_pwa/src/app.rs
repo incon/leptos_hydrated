@@ -45,7 +45,6 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
                 <Title text="Offline Todo" />
                 <link rel="icon" type="image/svg+xml" href=format!("/icon.svg?v={version}") />
                 <link rel="manifest" href="/manifest.json" />
-                <HydrationScripts options=options.clone() />
                 <MetaTags />
                 <Stylesheet id="leptos" href="/pkg/offline_pwa.css" />
                 <script>

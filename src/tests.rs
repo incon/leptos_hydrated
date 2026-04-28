@@ -3,7 +3,7 @@ use tower::ServiceExt;
 use crate::core::InjectedStates;
 #[cfg(not(feature = "ssr"))]
 use crate::core::get_hydration_counter;
-use crate::core::create_hydrated_signal;
+use crate::core::{create_hydrated_signal, create_hydrated_context};
 #[cfg(feature = "ssr")]
 use crate::core::{serialize_for_injection, get_injected_states};
 use leptos::prelude::*;
@@ -245,7 +245,7 @@ async fn test_hydrated_signal_wrapper_eq_and_debug() {
     local.run_until(async {
         let owner = Owner::new_root(None);
         owner.with(|| {
-            let h1 = use_hydrated_context::<DefaultState>();
+            let h1 = create_hydrated_context::<DefaultState>();
             let h2 = h1;
             assert_eq!(h1, h2);
             assert!(format!("{:?}", h1).contains("HydrateSignal"));
@@ -710,7 +710,7 @@ async fn test_hydrate_signal_deref() {
     init_test_env();
     let owner = Owner::new_root(None);
     owner.with(|| {
-        let h = use_hydrated_context::<DefaultState>();
+        let h = create_hydrated_context::<DefaultState>();
         // Test deref to RwSignal
         let _sig: &RwSignal<DefaultState> = &h;
         assert_eq!(h.get_untracked().value, 0);
@@ -762,23 +762,34 @@ async fn test_hydrated_resource_panics() {
 }
 
 
-#[test]
-fn test_provide_hydration_context_coverage() {
-    let owner = Owner::new_root(None);
-    owner.with(|| {
-        provide_hydration_context();
-        assert!(use_context::<crate::helpers::HydrationStore>().is_some());
-    });
-}
+
 
 #[test]
 fn test_hydrate_signal_eq() {
     init_test_env();
     let owner = Owner::new_root(None);
     owner.with(|| {
-        let h1 = use_hydrated_context::<DefaultState>();
+        let h1 = create_hydrated_context::<DefaultState>();
         let h2 = h1;
         assert_eq!(h1, h2);
+    });
+}
+
+#[test]
+fn test_use_hydrated_context_accessor() {
+    init_test_env();
+    let owner = Owner::new_root(None);
+    owner.with(|| {
+        // Should be None initially
+        assert!(use_hydrated_context::<DefaultState>().is_none());
+
+        // Create and provide
+        let h = create_hydrated_context::<DefaultState>();
+        provide_context(h);
+
+        // Should be Some now
+        assert!(use_hydrated_context::<DefaultState>().is_some());
+        assert_eq!(use_hydrated_context::<DefaultState>().unwrap(), h);
     });
 }
 

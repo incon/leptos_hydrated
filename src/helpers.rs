@@ -98,13 +98,6 @@ impl HydrationStore {
     }
 }
 
-/// Provides the hydration context for the current request.
-/// Should be called inside the `leptos_routes_with_context` setup in `main.rs`.
-#[cfg(any(feature = "ssr", not(target_arch = "wasm32")))]
-pub fn provide_hydration_context() {
-    provide_context(HydrationStore::new());
-}
-
 /// Internal helper to get the store, initializing it from context or creating a lazy one.
 #[cfg(any(feature = "ssr", not(target_arch = "wasm32")))]
 pub(crate) fn get_store() -> HydrationStore {

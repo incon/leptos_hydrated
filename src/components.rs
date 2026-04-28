@@ -1,4 +1,4 @@
-use crate::core::use_hydrated_context;
+use crate::core::create_hydrated_context;
 use crate::traits::Hydratable;
 use leptos::prelude::*;
 
@@ -29,7 +29,7 @@ where
         + 'static,
 {
     let _ = global;
-    let state = use_hydrated_context::<T>();
+    let state = create_hydrated_context::<T>();
 
     let children_view = if let Some(children_fn) = children {
         // Scoped to children: create a child owner so we don't leak context

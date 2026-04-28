@@ -67,10 +67,17 @@ impl<T: 'static> PartialEq for HydrateSignal<T> {
 
 impl<T: 'static> Eq for HydrateSignal<T> {}
 
-/// Creates a new hydrated signal with an automatically generated ID.
-/// State is injected by the `inject_logic` middleware on the server.
-/// This also sets up automatic synchronization via a `LocalResource`.
-pub fn use_hydrated_context<T>() -> HydrateSignal<T>
+/// Accesses the existing hydrated state from context.
+pub fn use_hydrated_context<T>() -> Option<HydrateSignal<T>>
+where
+    T: Hydratable + Clone + Send + Sync + serde::Serialize + serde::de::DeserializeOwned + PartialEq + 'static,
+{
+    use_context::<HydrateSignal<T>>()
+}
+
+/// Explicitly creates a new hydrated signal from `T::initial()`.
+/// This is used by providers to ensure a fresh state is created for a new scope.
+pub(crate) fn create_hydrated_context<T>() -> HydrateSignal<T>
 where
     T: Hydratable + Clone + Send + Sync + serde::Serialize + serde::de::DeserializeOwned + PartialEq + 'static,
 {

@@ -150,6 +150,7 @@
 //! ## Environment Utilities
 //!
 //! - `isomorphic!`: Run different logic for server seed vs client hydration.
+//! - `use_hydrated_context<T>()`: Accesses the hydrated state from context.
 //! - `inject_state(&value)`: Manually inject a state from the server (SSR only).
 //! - `use_injected_state<T>()`: Reads the next available injected state from the server (client-side only).
 //!
