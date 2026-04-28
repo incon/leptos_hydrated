@@ -158,28 +158,6 @@
 //! # }
 //! ```
 //!
-//! ## Environment Utilities
-//!
-//! - `isomorphic!`: Run different logic for server seed vs client hydration.
-//! - `use_hydrated_context<T>()`: Accesses the hydrated state from context.
-//! - `inject_state(&value)`: Manually inject a state from the server (SSR only).
-//! - `use_injected_state<T>()`: Reads the next available injected state from the server (client-side only).
-//!
-//! ### Example: Manual Injection with `isomorphic!`
-//!
-//! ```rust,no_run
-//! # use leptos_hydrated::*;
-//! # #[derive(serde::Serialize, serde::Deserialize)] struct MyState { count: i32 }
-//! let my_value = isomorphic! {
-//!     state => {
-//!         MyState{ count: 42 };
-//!     },
-//!     hydrate => {
-//!         use_injected_state::<MyState>().unwrap_or_else(|| MyState { count: 0 })
-//!     }
-//! };
-//! ```
-//!
 //!
 //! ## PWA & "Born Offline" Support
 //!
@@ -194,7 +172,7 @@ mod ssr;
 mod traits;
 
 pub use components::HydratedContext;
-pub use core::{hydrated_signal, use_hydrated_context, use_injected_state};
+pub use core::{hydrated_signal, use_hydrated_context};
 
 #[allow(unused_imports)]
 pub use helpers::*;

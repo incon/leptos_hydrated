@@ -138,24 +138,6 @@ pub(crate) fn get_injected_states() -> InjectedStates {
 }
 
 
-/// Reads the next available injected state from the server.
-/// 
-/// This is the client-side counterpart to `get_injected_states()`.
-/// It increments the internal hydration counter.
-pub fn use_injected_state<T>() -> Option<T>
-where
-    T: serde::de::DeserializeOwned,
-{
-    #[cfg(not(feature = "ssr"))]
-    {
-        read_injected_state::<T>()
-    }
-    #[cfg(feature = "ssr")]
-    {
-        None
-    }
-}
-
 
 /// The core hook for creating a hydrated signal.
 ///

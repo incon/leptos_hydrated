@@ -100,23 +100,6 @@ impl Hydratable for ThemeState {
 }
 ```
 
-### 2. Manual Injection with `isomorphic!`
-
-For custom hydration logic, use `inject_state()` on the server and `use_injected_state<T>()` in the browser within an `isomorphic!` block.
-
-```rust
-let my_value = isomorphic! {
-    state => {
-        let value = MyState { count: 42 };
-        value
-    },
-    hydrate => {
-        // Pull the next state from the stream (Client only)
-        use_injected_state::<MyState>().unwrap_or_else(|| MyState { count: 0 })
-    }
-};
-```
-
 ## Server-Side Setup
 
 ### 1. Middleware
@@ -137,26 +120,7 @@ let app = Router::new()
     .with_state(leptos_options);
 ```
 
-### 2. App Shell
 
-Include `<HydrationScripts />` in your application shell's `<head>`.
-
-```rust
-pub fn shell(options: LeptosOptions) -> impl IntoView {
-    view! {
-        <!DOCTYPE html>
-        <html>
-            <head>
-                <HydrationScripts options=options />
-                <MetaTags />
-            </head>
-            <body>
-                <App />
-            </body>
-        </html>
-    }
-}
-```
 
 ## Isomorphic Helpers
 
@@ -168,5 +132,3 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
 
 - **`isomorphic! { state => ..., hydrate => ... }`**: Branch logic for server-seed vs client-hydration.
 - **`use_hydrated_context<T>()`**: Accesses state from context (returns `Option<RwSignal<T>>`).
-- **`inject_state(&value)`**: Manually push state into the hydration stream (SSR only).
-- **`use_injected_state<T>()`**: Pull the next state from the hydration stream (Client only).
