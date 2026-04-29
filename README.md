@@ -93,7 +93,7 @@ impl Hydratable for ThemeState {
     }
 
     #[cfg(not(feature = "ssr"))]
-    fn on_hydrate(&self, state: RwSignal<Self>) {
+    fn on_hydrate(&self) {
         // Optional: Execute code in the browser immediately after hydration
         leptos::logging::log!("Theme hydrated: {}", self.0);
     }
