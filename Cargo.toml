@@ -1,6 +1,6 @@
 [package]
 name = "leptos_hydrated"
-version = "0.8.0"
+version = "0.9.0"
 
 edition = "2024"
 authors = ["David Darrell"]
@@ -17,7 +17,6 @@ ssr = [
     "dep:axum",
     "dep:serde_json",
     "dep:leptos_axum",
-    "dep:http",
     "dep:serde_urlencoded",
     "dep:futures-util",
 ]
@@ -41,7 +40,7 @@ wasm-bindgen = { version = "0.2", optional = true }
 serde-wasm-bindgen = { version = "0.6", optional = true }
 leptos_axum = { version = "0.8", optional = true }
 axum = { version = "0.8", optional = true }
-http = { version = "1.0", optional = true }
+http = { version = "1.0" }
 web-sys = { version = "0.3", optional = true, features = [
     "UrlSearchParams",
     "Location",
@@ -49,6 +48,9 @@ web-sys = { version = "0.3", optional = true, features = [
     "Document",
 ] }
 futures-util = { version = "0.3", optional = true }
+bytes = "1.11"
+server_fn = { version = "0.8", default-features = false }
+leptos_hydrated_macro = { path = "./leptos_hydrated_macro" }
 
 [dev-dependencies]
 tokio = { version = "1.51", features = ["full"] }
@@ -59,7 +61,11 @@ tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
 
 [workspace]
-members = ["examples/hydrate_showcase", "examples/offline_pwa"]
+members = [
+    "leptos_hydrated_macro",
+    "examples/hydrate_showcase",
+    "examples/offline_pwa",
+]
 
 # Defines a size-optimized profile for the WASM bundle in release mode
 [profile.wasm-release]

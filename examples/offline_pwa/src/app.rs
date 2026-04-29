@@ -277,7 +277,7 @@ fn TodoDetailsPage() -> impl IntoView {
         params
             .get()
             .ok()
-            .and_then(|p| state.get().todos.into_iter().find(|t| t.id == p.id))
+            .and_then(|p| state.get().todos.iter().find(|t| t.id == p.id).cloned())
     };
 
     view! {

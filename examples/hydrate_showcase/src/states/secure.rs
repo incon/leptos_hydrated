@@ -19,31 +19,28 @@ impl Hydratable for SecureUserData {
         SecureUserData(read_secure_user_data())
     }
 
-    #[cfg(not(feature = "ssr"))]
     fn should_sync_on_client() -> bool {
         // Disable client-side synchronization for secure data.
         false
     }
 }
 
+#[ssr]
 pub fn read_secure_user_data() -> Option<SecureData> {
     // Only check the HTTP-only cookie on the server.
-    #[cfg(feature = "ssr")]
-    {
-        if let Some(token) = get_cookie("secret_token") {
-            if token == "HYDRATED_SECRET_TOKEN" {
-                return Some(SecureData {
-                    balance: 5000,
-                    tier: "Platinum".to_string(),
-                });
-            }
+    if let Some(token) = get_cookie("secret_token") {
+        if token == "HYDRATED_SECRET_TOKEN" {
+            return Some(SecureData {
+                balance: 5000,
+                tier: "Platinum".to_string(),
+            });
         }
     }
 
     None
 }
 
-#[server]
+#[hydrated_server]
 pub async fn login_secure() -> Result<SecureUserData, ServerFnError> {
     set_cookie(
         "secret_token",
@@ -53,7 +50,7 @@ pub async fn login_secure() -> Result<SecureUserData, ServerFnError> {
     Ok(SecureUserData(read_secure_user_data()))
 }
 
-#[server]
+#[hydrated_server]
 pub async fn logout_secure() -> Result<SecureUserData, ServerFnError> {
     set_cookie(
         "secret_token",

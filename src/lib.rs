@@ -22,6 +22,7 @@
 //! 2. **Hydration:** The client reads the serialized state from the HTML and initializes the signal immediately — **zero flicker**.
 //! 3. **Synchronization:** Once the WASM is active, `initial()` is re-run on the client to synchronize with the current browser state (e.g., reading a JS-accessible cookie).
 //! 4. **Lifecycle Hooks:** Use `on_hydrate` to set up browser-only event listeners (e.g., network status, window resize).
+//! 5. **WASM Bundle Optimization:** Use `#[hydrated_server]` to eliminate `serde_json` from your client-side WASM bundle.
 //!
 //! ## Hydration Scopes
 //!
@@ -91,6 +92,27 @@
 //! }
 //! ```
 //!
+//! ## Bundle Size Optimization
+//!
+//! One of the biggest contributors to Leptos WASM bundle size is `serde_json`. `leptos_hydrated` provides a custom codec and macro to eliminate this weight from your client-side binary.
+//!
+//! ### `#[hydrated_server]`
+//!
+//! Replace standard `#[server]` with `#[hydrated_server]` to opt into the `BrowserJson` protocol. This uses the browser's native `JSON.parse` and `JSON.stringify` on the client, and `serde_json` on the server.
+//!
+//! ```rust,no_run
+//! # use leptos::prelude::*;
+//! # use leptos_hydrated::*;
+//! # #[derive(Clone, serde::Serialize, serde::Deserialize)] struct MyData;
+//! #[hydrated_server]
+//! pub async fn my_server_fn(data: MyData) -> Result<MyData, ServerFnError> {
+//!     Ok(data)
+//! }
+//! ```
+//!
+//! By using this macro, you can often save **150 KB - 200 KB** on your final WASM binary. It is fully compatible with `ActionForm` because it uses standard URL encoding for inputs and optimized JSON for outputs.
+//!
+//!
 //! ## Quick Start
 //!
 //! Implement the [`Hydratable`] trait to define how your state is initialized and synchronized.
@@ -113,7 +135,7 @@
 //!     }
 //!
 //!     #[cfg(not(feature = "ssr"))]
-//!     fn on_hydrate(&self, state: RwSignal<Self>) {
+//!     fn on_hydrate(&self) {
 //!         // Optional: Execute code in the browser after hydration
 //!         leptos::logging::log!("Hydrated theme: {}", self.theme);
 //!     }
@@ -164,6 +186,7 @@
 //! `leptos_hydrated` supports PWAs loading from an offline shell (CSR mode) by detecting the mounting mode in your `lib.rs` and providing it via context to your components.
 
 pub mod components;
+pub mod codec;
 mod core;
 mod helpers;
 mod macros;
@@ -181,6 +204,7 @@ pub use macros::*;
 #[cfg(feature = "ssr")]
 pub use ssr::*;
 pub use traits::*;
+pub use leptos_hydrated_macro::{hydrate, ssr, hydrated_server};
 
 #[cfg(test)]
 mod tests;

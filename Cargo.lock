@@ -1273,25 +1273,37 @@ dependencies = [
 
 [[package]]
 name = "leptos_hydrated"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "any_spawner",
  "axum",
+ "bytes",
  "futures-util",
  "http",
  "http-body-util",
  "js-sys",
  "leptos",
  "leptos_axum",
+ "leptos_hydrated_macro",
  "leptos_router",
  "serde",
  "serde-wasm-bindgen",
  "serde_json",
  "serde_urlencoded",
+ "server_fn",
  "tokio",
  "tower",
  "wasm-bindgen",
  "web-sys",
+]
+
+[[package]]
+name = "leptos_hydrated_macro"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

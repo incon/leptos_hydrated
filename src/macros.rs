@@ -5,10 +5,13 @@ macro_rules! isomorphic {
         {
             $state
         }
-        #[cfg(not(feature = "ssr"))]
+        #[cfg(all(not(feature = "ssr"), target_arch = "wasm32"))]
         {
             $hydrate
         }
+        #[cfg(all(not(feature = "ssr"), not(target_arch = "wasm32")))]
+        {
+            $state
+        }
     }};
 }
-

@@ -71,9 +71,11 @@ impl Hydratable for OnlineState {
     }
 
     #[cfg(not(feature = "ssr"))]
-    fn on_hydrate(&self, online_state: RwSignal<Self>) {
+    fn on_hydrate(&self) {
         use leptos::ev;
         use leptos_use::use_event_listener;
+
+        let online_state = use_hydrated_context::<Self>();
 
         let _ = use_event_listener(web_sys::window(), ev::online, move |_| {
             leptos::logging::log!("PWA: Application is now online");
