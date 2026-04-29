@@ -2,6 +2,10 @@
 name = "leptos_hydrated_macro"
 version = "0.1.0"
 edition = "2024"
+authors = ["David Darrell"]
+license = "MIT"
+description = "Procedural macros for the leptos_hydrated library"
+repository = "https://github.com/incon/leptos_hydrated"
 
 [lib]
 proc-macro = true
