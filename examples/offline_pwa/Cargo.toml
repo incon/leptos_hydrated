@@ -64,7 +64,6 @@ ssr = [
     "leptos_meta/ssr",
     "leptos_router/ssr",
     "leptos_hydrated/ssr",
-    "dep:serde_json",
 ]
 
 [package.metadata.leptos]
@@ -72,7 +71,7 @@ ssr = [
 output-name = "offline_pwa"
 
 # The site root folder is where cargo-leptos generate all output. WARNING: all content of this folder will be erased on a rebuild. Use it in your server setup.
-site-root = "target/site"
+site-root = "target/site-pwa"
 
 # The site-root relative folder where all compiled output (JS, WASM and CSS) is written
 # Defaults to pkg

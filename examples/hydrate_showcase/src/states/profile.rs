@@ -94,12 +94,12 @@ pub fn read_profile_state() -> ProfileState {
     }
 }
 
-#[server]
+#[hydrated_server]
 pub async fn fetch_profile_state() -> Result<ProfileState, ServerFnError> {
     Ok(read_profile_state())
 }
 
-#[server]
+#[hydrated_server]
 pub async fn update_profile(name: String, role: String) -> Result<UserProfile, ServerFnError> {
     let session = get_cookie("session").unwrap_or_default();
     let decoded = urlencoding::decode(&session)
@@ -129,7 +129,7 @@ pub async fn update_profile(name: String, role: String) -> Result<UserProfile, S
     Ok(profile)
 }
 
-#[server]
+#[hydrated_server]
 pub async fn toggle_login_server() -> Result<ProfileState, ServerFnError> {
     let profile = read_profile_state();
     if profile.is_authenticated {

@@ -100,6 +100,25 @@ impl Hydratable for ThemeState {
 }
 ```
 
+## Bundle Size Optimization
+
+`leptos_hydrated` is designed to keep your client-side WASM bundles as lean as possible. By default, Leptos server functions rely on `serde_json` for communication, which can add **~150-200 KB** to your WASM binary.
+
+### `#[hydrated_server]`
+
+Use the `#[hydrated_server]` macro instead of standard `#[server]` to eliminate `serde_json` from your frontend. It uses the browser's native `JSON` primitives for serialization/deserialization.
+
+```rust
+#[hydrated_server]
+pub async fn update_user(name: String) -> Result<User, ServerFnError> {
+    // This function uses native Browser JSON on the client
+    // and serde_json on the server automatically.
+    Ok(User { name })
+}
+```
+
+This optimization is fully compatible with `ActionForm` and standard `ServerAction` patterns.
+
 ## Server-Side Setup
 
 ### 1. Middleware

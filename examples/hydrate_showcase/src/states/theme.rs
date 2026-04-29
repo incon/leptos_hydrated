@@ -35,7 +35,7 @@ pub fn read_theme_state() -> ThemeState {
     ThemeState(theme)
 }
 
-#[server]
+#[hydrated_server]
 pub async fn toggle_theme_server() -> Result<ThemeState, ServerFnError> {
     let theme = get_cookie("theme").unwrap_or_else(|| "light".to_string());
     let new_theme = if theme == "dark" { "light" } else { "dark" };

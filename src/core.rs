@@ -6,7 +6,6 @@ use std::sync::{Arc, Mutex};
 #[cfg(feature = "ssr")]
 use http::request::Parts;
 
-
 /// Global shared state for injected scripts.
 #[cfg(feature = "ssr")]
 #[derive(Clone, Default, Debug)]
@@ -78,26 +77,19 @@ pub(crate) fn serialize_for_injection<T: serde::Serialize>(value: &T) -> String 
     leptos::serde_json::to_string(value).unwrap_or_default()
 }
 
-#[cfg(not(feature = "ssr"))]
+#[cfg(all(not(feature = "ssr"), target_arch = "wasm32"))]
 pub(crate) fn read_injected_state<T: serde::de::DeserializeOwned>() -> Option<T> {
-    #[cfg(all(target_arch = "wasm32", not(feature = "ssr")))]
-    {
-
-        let arr = get_hydration_data()?;
-        let item = arr.shift();
-        
-        if item.is_null() || item.is_undefined() {
-            return None;
-        }
-
-        serde_wasm_bindgen::from_value(item).ok()
+    let arr = get_hydration_data()?;
+    let item = arr.shift();
+    
+    if item.is_null() || item.is_undefined() {
+        return None;
     }
 
-    #[cfg(any(not(target_arch = "wasm32"), feature = "ssr"))]
-    {
-        None
-    }
+    serde_wasm_bindgen::from_value(item).ok()
 }
+
+
 #[cfg(feature = "ssr")]
 pub(crate) fn get_injected_states() -> InjectedStates {
     if let Some(states) = use_context::<InjectedStates>() {
@@ -109,11 +101,11 @@ pub(crate) fn get_injected_states() -> InjectedStates {
         } else {
             #[cfg(feature = "ssr")]
             {
-                use crate::ssr::HydrationMiddlewareMarker;
                 // Only panic in debug mode if we are in a context that has been matched by Axum (a real request)
                 // but the hydration marker is missing.
                 #[cfg(debug_assertions)]
                 {
+                    use crate::ssr::HydrationMiddlewareMarker;
                     if parts.extensions.get::<axum::extract::MatchedPath>().is_some() 
                     && parts.extensions.get::<HydrationMiddlewareMarker>().is_none() 
                     {
@@ -169,7 +161,7 @@ where
     T: Hydratable + Clone + Send + Sync + serde::Serialize + serde::de::DeserializeOwned + 'static,
     F: FnOnce() -> T + 'static,
 {
-    #[cfg(not(feature = "ssr"))]
+    #[cfg(all(not(feature = "ssr"), target_arch = "wasm32"))]
     let initial_val = {
         let injected = read_injected_state::<T>();
         injected.unwrap_or_else(fallback)
@@ -186,11 +178,16 @@ where
         val
     };
 
+    #[cfg(all(not(feature = "ssr"), not(target_arch = "wasm32")))]
+    let initial_val = fallback();
+
     let signal = RwSignal::new(initial_val.clone());
 
-    #[cfg(not(feature = "ssr"))]
+    #[cfg(all(not(feature = "ssr"), target_arch = "wasm32"))]
     {
-        initial_val.on_hydrate(signal);
+        // Provide the signal to the context so that on_hydrate can find it via use_hydrated_context
+        provide_context(signal);
+        initial_val.on_hydrate();
     }
 
     let first_run = StoredValue::new(true);
@@ -204,7 +201,7 @@ where
                 first_run.set_value(false);
 
                 // On the client, check if we should skip the synchronization re-run.
-                #[cfg(not(feature = "ssr"))]
+                #[cfg(all(not(feature = "ssr"), target_arch = "wasm32"))]
                 if !T::should_sync_on_client() {
                     return None;
                 }
@@ -216,7 +213,7 @@ where
         }
     });
 
-    #[cfg(all(not(feature = "ssr"), not(test)))]
+    #[cfg(all(not(feature = "ssr"), target_arch = "wasm32", not(test)))]
     {
         let resource_cloned = resource.clone();
         leptos::task::spawn_local(async move {
@@ -228,6 +225,3 @@ where
 
     (signal, resource)
 }
-
-
-

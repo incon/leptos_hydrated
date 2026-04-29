@@ -502,7 +502,6 @@ impl Hydratable for NoSyncState {
     fn initial() -> Self {
         NoSyncState { value: 50 }
     }
-    #[cfg(not(feature = "ssr"))]
     fn should_sync_on_client() -> bool {
         false
     }
