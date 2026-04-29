@@ -50,7 +50,7 @@ web-sys = { version = "0.3", optional = true, features = [
 futures-util = { version = "0.3", optional = true }
 bytes = "1.11"
 server_fn = { version = "0.8", default-features = false }
-leptos_hydrated_macro = { path = "./leptos_hydrated_macro" }
+leptos_hydrated_macro = { path = "./leptos_hydrated_macro", version = "0.1.0" }
 
 [dev-dependencies]
 tokio = { version = "1.51", features = ["full"] }
