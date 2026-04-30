@@ -2,7 +2,7 @@ use crate::states::*;
 use leptos::either::Either;
 use leptos::prelude::*;
 use leptos_hydrated::*;
-use leptos_meta::{provide_meta_context, MetaTags, Stylesheet, Title};
+use leptos_meta::{provide_meta_context, HashedStylesheet, MetaTags, Title};
 use leptos_router::{
     components::{Route, Router, Routes, A},
     hooks::use_params,
@@ -47,7 +47,7 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
                 <link rel="manifest" href="/manifest.json" />
                 <MetaTags />
                 <HydrationScripts options=options.clone() />
-                <Stylesheet id="leptos" href="/pkg/offline_pwa.css" />
+                <HashedStylesheet options=options.clone() />
                 <script>
                     "if ('serviceWorker' in navigator) {
                         navigator.serviceWorker.register('/sw.js');

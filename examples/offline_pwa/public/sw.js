@@ -6,9 +6,7 @@ const ASSETS = [
   // '/',             // We remove this to force fallback to OFFLINE_URL for navigations
   OFFLINE_URL,        // This is your CSR shell
   '/manifest.json',
-  '/pkg/{{OUTPUT_NAME}}.js?v={{VERSION}}',
-  '/pkg/{{OUTPUT_NAME}}.wasm?v={{VERSION}}',
-  '/pkg/{{OUTPUT_NAME}}.css?v={{VERSION}}',
+  '{{ASSETS}}',
   '/icon.svg?v={{VERSION}}',
 ];
 

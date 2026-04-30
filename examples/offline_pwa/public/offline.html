@@ -4,10 +4,9 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="preload" href="/pkg/{{OUTPUT_NAME}}.wasm?v={{VERSION}}" as="fetch" type="application/wasm"
-        crossorigin="">
-    <link rel="modulepreload" href="/pkg/{{OUTPUT_NAME}}.js?v={{VERSION}}">
-    <link rel="stylesheet" href="/pkg/{{OUTPUT_NAME}}.css?v={{VERSION}}">
+    <link rel="preload" href="{{WASM_PATH}}" as="fetch" type="application/wasm" crossorigin>
+    <link rel="modulepreload" href="{{JS_PATH}}">
+    <link rel="stylesheet" href="{{CSS_PATH}}">
     <link rel="manifest" href="/manifest.json">
     <link rel="icon" type="image/svg+xml" href="/icon.svg?v={{VERSION}}">
     <meta name="theme-color" content="#ffffff" />
@@ -21,8 +20,8 @@
 
 <body>
     <script type="module">
-        import init, { hydrate } from '/pkg/{{OUTPUT_NAME}}.js?v={{VERSION}}';
-        init({ module_or_path: '/pkg/{{OUTPUT_NAME}}.wasm?v={{VERSION}}' }).then(() => {
+        import init, { hydrate } from '{{JS_PATH}}';
+        init({ module_or_path: '{{WASM_PATH}}' }).then(() => {
             hydrate();
         });
     </script>

@@ -44,15 +44,54 @@ async fn main() {
 async fn sw_handler(
     axum::extract::State(options): axum::extract::State<leptos::config::LeptosOptions>,
 ) -> impl axum::response::IntoResponse {
-    use std::sync::OnceLock;
-    static SW_CONTENT: OnceLock<String> = OnceLock::new();
+    let sw = include_str!("../public/sw.js").to_string();
+    let version = get_version();
 
-    let content = SW_CONTENT.get_or_init(|| {
-        let mut sw = include_str!("../public/sw.js").to_string();
-        let version = get_version();
-        sw = sw.replace("{{VERSION}}", &version);
-        sw.replace("{{OUTPUT_NAME}}", &options.output_name)
-    });
+    // Helper to detect if a filename is likely hashed (e.g. name.hash.js)
+    let is_hashed = |name: &str| name.chars().filter(|&c| c == '.').count() > 1;
+
+    // 1. Resolve all assets in the pkg directory to support code splitting
+    let mut asset_paths = Vec::new();
+    let pkg_path = std::path::PathBuf::from(options.site_root.as_ref())
+        .join(options.site_pkg_dir.as_ref());
+
+    if let Ok(entries) = std::fs::read_dir(&pkg_path) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() {
+                if let Ok(file_name) = entry.file_name().into_string() {
+                    let is_asset = file_name.ends_with(".js")
+                        || file_name.ends_with(".wasm")
+                        || file_name.ends_with(".css");
+                    let is_map = file_name.ends_with(".map");
+
+                    if is_asset && !is_map {
+                        if is_hashed(&file_name) {
+                            asset_paths.push(format!("/{}/{}", options.site_pkg_dir, file_name));
+                        } else {
+                            asset_paths.push(format!("/{}/{}?v={}", options.site_pkg_dir, file_name, version));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Fallback if no assets found
+    if asset_paths.is_empty() {
+        asset_paths.push(format!("/{}/{}.js?v={}", options.site_pkg_dir, options.output_name, version));
+        asset_paths.push(format!("/{}/{}.wasm?v={}", options.site_pkg_dir, options.output_name, version));
+    }
+
+    let assets_string = asset_paths
+        .iter()
+        .map(|p| format!("'{}',", p))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let sw = sw.replace("{{VERSION}}", &version);
+    let sw = sw.replace("'{{ASSETS}}',", &assets_string);
+    let sw = sw.replace("{{OUTPUT_NAME}}", &options.output_name);
 
     (
         [
@@ -62,7 +101,7 @@ async fn sw_handler(
                 "no-cache, no-store, must-revalidate",
             ),
         ],
-        content.clone(),
+        sw,
     )
 }
 
@@ -94,15 +133,69 @@ async fn manifest_handler() -> impl axum::response::IntoResponse {
 async fn offline_handler(
     axum::extract::State(options): axum::extract::State<leptos::config::LeptosOptions>,
 ) -> impl axum::response::IntoResponse {
-    use std::sync::OnceLock;
-    static OFFLINE_CONTENT: OnceLock<String> = OnceLock::new();
+    let mut html = include_str!("../public/offline.html").to_string();
+    let version = get_version();
 
-    let content = OFFLINE_CONTENT.get_or_init(|| {
-        let mut html = include_str!("../public/offline.html").to_string();
-        let version = get_version();
-        html = html.replace("{{OUTPUT_NAME}}", &options.output_name);
-        html.replace("{{VERSION}}", &version)
-    });
+    // Helper to detect if a filename is likely hashed (e.g. name.hash.js)
+    let is_hashed = |name: &str| name.chars().filter(|&c| c == '.').count() > 1;
+
+    // Dynamically find the main bundle names (including hashes)
+    let mut js_name = format!("{}.js", options.output_name);
+    let mut wasm_name = format!("{}.wasm", options.output_name);
+    let mut css_name = format!("{}.css", options.output_name);
+
+    let pkg_path = std::path::PathBuf::from(options.site_root.as_ref())
+        .join(options.site_pkg_dir.as_ref());
+
+    if let Ok(entries) = std::fs::read_dir(&pkg_path) {
+        for entry in entries.flatten() {
+            if let Ok(name) = entry.file_name().into_string() {
+                if name.starts_with(options.output_name.as_ref()) && !name.ends_with(".map") {
+                    if name.ends_with(".js") { 
+                        // Prefer hashed names
+                        if is_hashed(&name) || !is_hashed(&js_name) {
+                            js_name = name;
+                        }
+                    }
+                    else if name.ends_with(".wasm") { 
+                        if is_hashed(&name) || !is_hashed(&wasm_name) {
+                            wasm_name = name;
+                        }
+                    }
+                    else if name.ends_with(".css") { 
+                        if is_hashed(&name) || !is_hashed(&css_name) {
+                            css_name = name;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let js_path = if is_hashed(&js_name) {
+        format!("/{}/{}", options.site_pkg_dir, js_name)
+    } else {
+        format!("/{}/{}?v={}", options.site_pkg_dir, js_name, version)
+    };
+
+    let wasm_path = if is_hashed(&wasm_name) {
+        format!("/{}/{}", options.site_pkg_dir, wasm_name)
+    } else {
+        format!("/{}/{}?v={}", options.site_pkg_dir, wasm_name, version)
+    };
+
+    let css_path = if is_hashed(&css_name) {
+        format!("/{}/{}", options.site_pkg_dir, css_name)
+    } else {
+        format!("/{}/{}?v={}", options.site_pkg_dir, css_name, version)
+    };
+
+    html = html.replace("{{OUTPUT_NAME}}", &options.output_name);
+    html = html.replace("{{VERSION}}", &version);
+    html = html.replace("{{JS_PATH}}", &js_path);
+    html = html.replace("{{WASM_PATH}}", &wasm_path);
+    html = html.replace("{{CSS_PATH}}", &css_path);
+    html = html.replace("{{PKG_DIR}}", &options.site_pkg_dir);
 
     (
         [
@@ -112,7 +205,7 @@ async fn offline_handler(
                 "no-cache, no-store, must-revalidate",
             ),
         ],
-        content.clone(),
+        html,
     )
 }
 

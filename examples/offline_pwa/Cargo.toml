@@ -99,6 +99,8 @@ reload-ws-protocol = "WSS"
 end2end-cmd = "npx playwright test"
 end2end-dir = "end2end"
 
+# Enables hashed assets for production builds
+hash-files = true
 #  The browserlist query used for optimizing the CSS.
 browserquery = "defaults"
 
